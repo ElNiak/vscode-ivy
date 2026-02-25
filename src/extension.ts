@@ -95,7 +95,8 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.enabled") ||
                 e.affectsConfiguration("ivy.lsp.args") ||
                 e.affectsConfiguration("ivy.lsp.managedInstall") ||
-                e.affectsConfiguration("ivy.lsp.managedInstallPath")
+                e.affectsConfiguration("ivy.lsp.managedInstallPath") ||
+                e.affectsConfiguration("ivy.lsp.logLevel")
             ) {
                 clearCache();
                 await stopClient();
@@ -230,10 +231,17 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<string[]>("lsp.args", []);
 
+    const logLevel = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string>("lsp.logLevel", "INFO");
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
         transport: TransportKind.stdio,
+        options: {
+            env: { ...process.env, IVY_LSP_LOG_LEVEL: logLevel },
+        },
     };
 
     const traceLevel = vscode.workspace
