@@ -1,0 +1,12 @@
+{
+  "servers": {
+    "ivy-tools": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "ivy_lsp", "--mcp"],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
