@@ -215,5 +215,19 @@
       "}"
     ],
     "description": "Implementation block"
+  },
+  "RFC Bracket Tag": {
+    "prefix": "rfctag",
+    "body": [
+      "# [${1:rfc}:${2:section}]"
+    ],
+    "description": "RFC requirement bracket tag for coverage tracking"
+  },
+  "RFC Bracket Tag (multi)": {
+    "prefix": "rfctags",
+    "body": [
+      "# [${1:rfc}:${2:section1}, ${3:rfc}:${4:section2}]"
+    ],
+    "description": "Multiple RFC requirement bracket tags"
   }
 }

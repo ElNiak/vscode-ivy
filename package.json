@@ -244,6 +244,16 @@
           ],
           "description": "Directories to exclude from workspace indexing (relative to workspace root). The LSP stages non-excluded files into a flat directory for unambiguous include resolution. Add 'apt' to skip APT models. Exclusions apply within included paths."
         },
+        "ivy.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inline code lenses for requirement counts, state variable reads, and property dependencies above monitor blocks."
+        },
+        "ivy.codeLens.rfcCoverage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show workspace-level RFC coverage summary code lenses on files with bracket tag annotations."
+        },
         "ivy.tools.verifyTimeout": {
           "type": "number",
           "default": 120,

@@ -5,6 +5,29 @@ All notable changes to the Ivy Language extension will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2026-02-25
+
+### Added
+
+- **Code Lens settings**: `ivy.codeLens.enabled` and `ivy.codeLens.rfcCoverage` to toggle inline requirement annotations and RFC coverage summaries.
+- **RFC bracket tag snippets**: `rfctag` and `rfctags` snippets for writing coverage annotations.
+- Updated Marketplace description and keywords for RFC traceability features.
+
+### Changed
+
+- Bumped ivy-lsp dependency to v0.5.5 (analysis pipeline wired into document lifecycle, security hardening, type design improvements, 7 new tests).
+
+## [0.5.4] - 2026-02-25
+
+### Added
+
+- `scripts/bump_version.py` for automated version bumping with commit and tag.
+
+### Changed
+
+- LSP server installed from GitHub (`ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git`) instead of PyPI.
+- Version comparison uses `major.minor` to avoid unnecessary upgrades on patch bumps.
+
 ## [0.5.3] - 2026-02-25
 
 ### Fixed
@@ -112,6 +135,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python Auto-Detection**: Automatic discovery of Python interpreter from workspace `.venv`, system `python3`, or `python`.
 - **Graceful Degradation**: Extension provides syntax highlighting and snippets even when the LSP server is unavailable.
 
+[0.5.5]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.5
+[0.5.4]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.4
+[0.5.3]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.3
 [0.5.2]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.2
 [0.5.1]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.0

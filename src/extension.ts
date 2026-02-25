@@ -140,7 +140,9 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.maxRestartCount") ||
                 e.affectsConfiguration("ivy.lsp.restartWindow") ||
                 e.affectsConfiguration("ivy.lsp.includePaths") ||
-                e.affectsConfiguration("ivy.lsp.excludePaths")
+                e.affectsConfiguration("ivy.lsp.excludePaths") ||
+                e.affectsConfiguration("ivy.codeLens.enabled") ||
+                e.affectsConfiguration("ivy.codeLens.rfcCoverage")
             ) {
                 clearCache();
                 await stopClient();
@@ -356,6 +358,14 @@ async function startWithPython(
     const maxRestartCount = config.get<number>("lsp.maxRestartCount", 5);
     const restartWindow = config.get<number>("lsp.restartWindow", 180);
 
+    const codeLensEnabled = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("codeLens.enabled", true);
+
+    const rfcCoverageEnabled = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("codeLens.rfcCoverage", true);
+
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "ivy" }],
         outputChannelName: "Ivy Language Server",
@@ -366,6 +376,12 @@ async function startWithPython(
             maxRestartCount,
             restartWindow
         ),
+        initializationOptions: {
+            codeLens: {
+                enabled: codeLensEnabled,
+                rfcCoverage: rfcCoverageEnabled,
+            },
+        },
     };
 
     client = new LanguageClient(
