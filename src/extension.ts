@@ -132,7 +132,9 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.managedInstallPath") ||
                 e.affectsConfiguration("ivy.lsp.logLevel") ||
                 e.affectsConfiguration("ivy.lsp.maxRestartCount") ||
-                e.affectsConfiguration("ivy.lsp.restartWindow")
+                e.affectsConfiguration("ivy.lsp.restartWindow") ||
+                e.affectsConfiguration("ivy.lsp.includePaths") ||
+                e.affectsConfiguration("ivy.lsp.excludePaths")
             ) {
                 clearCache();
                 await stopClient();
@@ -320,12 +322,25 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<string>("lsp.logLevel", "INFO");
 
+    const includePaths = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string[]>("lsp.includePaths", []);
+
+    const excludePaths = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string[]>("lsp.excludePaths", ["submodules", "test"]);
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
         transport: TransportKind.stdio,
         options: {
-            env: { ...process.env, IVY_LSP_LOG_LEVEL: logLevel },
+            env: {
+                ...process.env,
+                IVY_LSP_LOG_LEVEL: logLevel,
+                IVY_LSP_INCLUDE_PATHS: includePaths.join(","),
+                IVY_LSP_EXCLUDE_PATHS: excludePaths.join(","),
+            },
         },
     };
 

@@ -2,7 +2,7 @@
   "name": "ivy-language",
   "displayName": "Ivy Language",
   "description": "Language support for Ivy formal specification files (.ivy) — syntax highlighting, LSP client, snippets",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "publisher": "panther-ivy",
   "license": "MIT",
   "repository": {
@@ -219,6 +219,18 @@
           "default": 180,
           "minimum": 10,
           "description": "Time window in seconds for counting server restarts. Only applies when maxRestartCount is not -1."
+        },
+        "ivy.lsp.includePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Directories to include in workspace indexing (relative to workspace root). When set, only these directories are scanned for .ivy files. Leave empty to scan the entire workspace."
+        },
+        "ivy.lsp.excludePaths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["submodules", "test"],
+          "description": "Directories to exclude from workspace indexing (relative to workspace root). The LSP stages non-excluded files into a flat directory for unambiguous include resolution. Add 'apt' to skip APT models. Exclusions apply within included paths."
         },
         "ivy.tools.verifyTimeout": {
           "type": "number",
