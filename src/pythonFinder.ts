@@ -1,5 +1,6 @@
 import * as cp from "child_process";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -11,8 +12,9 @@ let cachedPythonPath: string | undefined;
  * Search order:
  *   1. `ivy.pythonPath` setting (if non-empty)
  *   2. Workspace `.venv/bin/python` (or `.venv/Scripts/python.exe` on Windows)
- *   3. `python3` on PATH
- *   4. `python` on PATH
+ *   3. Managed venv `~/.ivy-lsp/venv/bin/python`
+ *   4. `python3` on PATH
+ *   5. `python` on PATH
  *
  * The result is cached for the session — call `clearCache()` to reset.
  */
@@ -45,6 +47,13 @@ export async function findPython(): Promise<string | undefined> {
                 return cachedPythonPath;
             }
         }
+    }
+
+    // Check managed venv
+    const managed = getManagedVenvPath();
+    if (managed && (await isPythonValid(managed))) {
+        cachedPythonPath = managed;
+        return cachedPythonPath;
     }
 
     // Try system python3 then python
@@ -86,6 +95,23 @@ export function clearCache(): void {
     cachedPythonPath = undefined;
 }
 
+/**
+ * Return the managed venv Python path if it exists on disk.
+ * The managed venv is at `~/.ivy-lsp/venv/` by default, or at
+ * the path configured in `ivy.lsp.managedInstallPath`.
+ */
+export function getManagedVenvPath(): string | undefined {
+    const custom = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string>("lsp.managedInstallPath", "");
+    const base = custom || path.join(os.homedir(), ".ivy-lsp");
+    const isWindows = process.platform === "win32";
+    const py = isWindows
+        ? path.join(base, "venv", "Scripts", "python.exe")
+        : path.join(base, "venv", "bin", "python");
+    return fs.existsSync(py) ? py : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -99,7 +125,7 @@ function getVenvPython(workspaceRoot: string): string | undefined {
     return fs.existsSync(venvBin) ? venvBin : undefined;
 }
 
-function isPythonValid(pythonPath: string): Promise<boolean> {
+export function isPythonValid(pythonPath: string): Promise<boolean> {
     return new Promise((resolve) => {
         cp.execFile(
             pythonPath,

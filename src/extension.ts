@@ -6,7 +6,13 @@ import {
     Trace,
     TransportKind,
 } from "vscode-languageclient/node";
-import { findPython, checkIvyLsp, clearCache } from "./pythonFinder";
+import { findPython, checkIvyLsp, clearCache, isPythonValid } from "./pythonFinder";
+import {
+    ensureIvyLspInstalled,
+    installZ3Support,
+    resetManagedVenv,
+    getManagedVenvPython,
+} from "./lspInstaller";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -19,6 +25,56 @@ export async function activate(
         100
     );
     context.subscriptions.push(statusBarItem);
+
+    // Register commands.
+    context.subscriptions.push(
+        vscode.commands.registerCommand("ivy.installServer", async () => {
+            clearCache();
+            await stopClient();
+            const pythonPath = await findPython();
+            if (!pythonPath) {
+                vscode.window.showErrorMessage(
+                    "Ivy LSP: No Python interpreter found. Install Python 3.10+."
+                );
+                return;
+            }
+            const managed = await ensureIvyLspInstalled(pythonPath);
+            if (managed) {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Language server installed successfully."
+                );
+                clearCache();
+                await startClient(context);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.installFullSupport", async () => {
+            const py = getManagedVenvPython();
+            if (!py) {
+                vscode.window.showErrorMessage(
+                    "Ivy LSP: No managed installation found. Run 'Ivy: Install Language Server' first."
+                );
+                return;
+            }
+            const ok = await installZ3Support(py);
+            if (ok) {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Full support (z3) installed. Restarting server..."
+                );
+                clearCache();
+                await stopClient();
+                await startClient(context);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.resetServer", async () => {
+            await stopClient();
+            await resetManagedVenv();
+            clearCache();
+            vscode.window.showInformationMessage(
+                "Ivy LSP: Managed installation removed. Restarting..."
+            );
+            await startClient(context);
+        })
+    );
 
     const config = vscode.workspace.getConfiguration("ivy");
     const lspEnabled = config.get<boolean>("lsp.enabled", true);
@@ -36,7 +92,9 @@ export async function activate(
             if (
                 e.affectsConfiguration("ivy.pythonPath") ||
                 e.affectsConfiguration("ivy.lsp.enabled") ||
-                e.affectsConfiguration("ivy.lsp.args")
+                e.affectsConfiguration("ivy.lsp.args") ||
+                e.affectsConfiguration("ivy.lsp.managedInstall") ||
+                e.affectsConfiguration("ivy.lsp.managedInstallPath")
             ) {
                 clearCache();
                 await stopClient();
@@ -72,29 +130,77 @@ async function startClient(
         vscode.window.showWarningMessage(
             "Ivy LSP: No Python interpreter found. " +
                 "Syntax highlighting is still active. " +
-                'Set "ivy.pythonPath" to enable full language support.'
+                'Set "ivy.pythonPath" or install Python 3.10+ to enable language support.'
         );
         setStatus("syntax-only");
         return;
     }
 
-    const ivyLspVersion = await checkIvyLsp(pythonPath);
+    let ivyLspVersion = await checkIvyLsp(pythonPath);
 
+    // If ivy-lsp is not installed, try managed auto-install.
     if (!ivyLspVersion) {
+        const managedInstallEnabled = vscode.workspace
+            .getConfiguration("ivy")
+            .get<boolean>("lsp.managedInstall", true);
+
+        if (managedInstallEnabled) {
+            // Find a system python to create the venv from.
+            // The pythonPath we found may be a workspace venv without ivy-lsp;
+            // for venv creation we need any working Python.
+            let basePython = pythonPath;
+            if (!(await isPythonValid(basePython))) {
+                setStatus("syntax-only");
+                return;
+            }
+
+            setStatus("installing");
+            const managedPy = await ensureIvyLspInstalled(basePython);
+
+            if (managedPy) {
+                ivyLspVersion = await checkIvyLsp(managedPy);
+                if (ivyLspVersion) {
+                    clearCache();
+                    // Re-find python — will now discover the managed venv.
+                    return startWithPython(
+                        context,
+                        managedPy,
+                        ivyLspVersion
+                    );
+                }
+            }
+
+            // Managed install failed.
+            vscode.window.showErrorMessage(
+                "Ivy LSP: Auto-install failed. " +
+                    "Install manually with: pip install ivy-lsp"
+            );
+            setStatus("syntax-only");
+            return;
+        }
+
+        // Managed install disabled — show manual instructions.
         vscode.window.showErrorMessage(
             "Ivy LSP: The ivy_lsp package is not installed. " +
-                "Install it with: pip install -e '.[lsp]' " +
-                "(from the panther_ivy directory).",
+                "Install it with: pip install ivy-lsp",
             "Copy Install Command"
         ).then((selection) => {
             if (selection === "Copy Install Command") {
-                vscode.env.clipboard.writeText('pip install -e ".[lsp]"');
+                vscode.env.clipboard.writeText("pip install ivy-lsp");
             }
         });
         setStatus("syntax-only");
         return;
     }
 
+    await startWithPython(context, pythonPath, ivyLspVersion);
+}
+
+async function startWithPython(
+    context: vscode.ExtensionContext,
+    pythonPath: string,
+    version: string
+): Promise<void> {
     const extraArgs = vscode.workspace
         .getConfiguration("ivy")
         .get<string[]>("lsp.args", []);
@@ -131,9 +237,30 @@ async function startClient(
         await client.setTrace(trace);
     }
 
+    // Listen for the server mode notification to set status accurately.
+    let modeDetected = false;
+    client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
+        if (!modeDetected && params.message.includes("Ivy LSP running in")) {
+            modeDetected = true;
+            if (params.message.includes("light mode")) {
+                setStatus("running-light", version);
+                // One-time suggestion to install full support.
+                const managed = getManagedVenvPython();
+                if (managed) {
+                    offerFullInstall();
+                }
+            } else {
+                setStatus("running-full", version);
+            }
+        }
+    });
+
     try {
         await client.start();
-        setStatus("running", ivyLspVersion);
+        // Default to running-full until we hear from the server.
+        if (!modeDetected) {
+            setStatus("running-full", version);
+        }
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
@@ -155,18 +282,46 @@ async function stopClient(): Promise<void> {
     }
 }
 
+/** Show a one-time prompt offering z3/full install. */
+function offerFullInstall(): void {
+    vscode.window
+        .showInformationMessage(
+            "Ivy LSP is running in light mode. Install z3 for full diagnostics?",
+            "Install Full Support",
+            "Not Now"
+        )
+        .then((selection) => {
+            if (selection === "Install Full Support") {
+                vscode.commands.executeCommand("ivy.installFullSupport");
+            }
+        });
+}
+
 // ---------------------------------------------------------------------------
 // Status bar
 // ---------------------------------------------------------------------------
 
-type StatusKind = "running" | "syntax-only" | "error";
+type StatusKind =
+    | "running-full"
+    | "running-light"
+    | "syntax-only"
+    | "installing"
+    | "error";
 
 function setStatus(kind: StatusKind, version?: string): void {
     switch (kind) {
-        case "running":
+        case "running-full":
             statusBarItem.text = `$(check) Ivy LSP${version ? ` v${version}` : ""}`;
-            statusBarItem.tooltip = "Ivy Language Server is running";
+            statusBarItem.tooltip = "Ivy Language Server is running (full mode)";
             statusBarItem.backgroundColor = undefined;
+            statusBarItem.command = undefined;
+            break;
+        case "running-light":
+            statusBarItem.text = `$(check) Ivy LSP${version ? ` v${version}` : ""} (Light)`;
+            statusBarItem.tooltip =
+                "Ivy LSP running in light mode — click to install full support";
+            statusBarItem.backgroundColor = undefined;
+            statusBarItem.command = "ivy.installFullSupport";
             break;
         case "syntax-only":
             statusBarItem.text = "$(warning) Ivy: Syntax Only";
@@ -175,6 +330,13 @@ function setStatus(kind: StatusKind, version?: string): void {
             statusBarItem.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.warningBackground"
             );
+            statusBarItem.command = "ivy.installServer";
+            break;
+        case "installing":
+            statusBarItem.text = "$(sync~spin) Ivy LSP: Installing...";
+            statusBarItem.tooltip = "Installing the Ivy Language Server...";
+            statusBarItem.backgroundColor = undefined;
+            statusBarItem.command = undefined;
             break;
         case "error":
             statusBarItem.text = "$(error) Ivy LSP: Error";
@@ -182,6 +344,7 @@ function setStatus(kind: StatusKind, version?: string): void {
             statusBarItem.backgroundColor = new vscode.ThemeColor(
                 "statusBarItem.errorBackground"
             );
+            statusBarItem.command = undefined;
             break;
     }
     statusBarItem.show();

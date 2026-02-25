@@ -42,6 +42,20 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "ivy.installServer",
+        "title": "Ivy: Install Language Server"
+      },
+      {
+        "command": "ivy.installFullSupport",
+        "title": "Ivy: Install Full Support (z3)"
+      },
+      {
+        "command": "ivy.resetServer",
+        "title": "Ivy: Reset Language Server Installation"
+      }
+    ],
     "languages": [
       {
         "id": "ivy",
@@ -102,6 +116,16 @@
           ],
           "default": "off",
           "description": "Trace level for communication between VSCode and the Ivy LSP server."
+        },
+        "ivy.lsp.managedInstall": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically install the Ivy LSP server into a managed environment when not found."
+        },
+        "ivy.lsp.managedInstallPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for the managed LSP install. Leave empty for ~/.ivy-lsp/."
         }
       }
     }
