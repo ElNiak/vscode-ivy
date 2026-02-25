@@ -8,6 +8,20 @@ import * as vscode from "vscode";
  * are registered when the extension activates.
  */
 suite("Ivy Tool Commands", () => {
+    suiteSetup(async () => {
+        // Open an ivy document to trigger extension activation.
+        const doc = await vscode.workspace.openTextDocument({
+            language: "ivy",
+            content: "type t",
+        });
+        await vscode.window.showTextDocument(doc);
+        // Wait briefly for activation to complete.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        await vscode.commands.executeCommand(
+            "workbench.action.closeActiveEditor"
+        );
+    });
+
     test("ivy.verify command is registered", async () => {
         const commands = await vscode.commands.getCommands(true);
         assert.ok(
