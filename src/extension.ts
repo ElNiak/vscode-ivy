@@ -141,12 +141,25 @@ async function startClient(
 
     // If the managed venv has an outdated version, upgrade automatically.
     const extensionVersion = context.extension.packageJSON.version as string;
-    if (ivyLspVersion && ivyLspVersion !== extensionVersion && getManagedVenvPython()) {
+    const managedPy = getManagedVenvPython();
+    if (ivyLspVersion && ivyLspVersion !== extensionVersion && managedPy) {
         setStatus("installing");
         const ok = await upgradeManagedIvyLsp();
         if (ok) {
             clearCache();
-            ivyLspVersion = await checkIvyLsp(pythonPath);
+            // Re-check from the managed venv directly, not the originally-found python
+            const newVersion = await checkIvyLsp(managedPy);
+            if (newVersion && newVersion !== extensionVersion) {
+                vscode.window.showWarningMessage(
+                    `Ivy LSP: Upgraded to v${newVersion} but extension expects v${extensionVersion}. ` +
+                    `The latest published version may not match yet.`
+                );
+            }
+            ivyLspVersion = newVersion;
+            // Continue with managed venv python since that's what was upgraded
+            if (ivyLspVersion) {
+                return startWithPython(context, managedPy, ivyLspVersion);
+            }
         }
     }
 
