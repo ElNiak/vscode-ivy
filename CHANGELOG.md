@@ -5,6 +5,24 @@ All notable changes to the Ivy Language extension will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-25
+
+### Added
+
+- **Context menus**: Right-click "Ivy" submenu in editor and explorer for `.ivy` files with Verify, Compile, and Show Model actions.
+- **Command Palette**: `Ivy: Verify`, `Ivy: Compile`, `Ivy: Show Model`, `Ivy: Cancel Running Operation`.
+- **Keyboard shortcuts**: `Cmd+Shift+F5` (Verify), `Cmd+Shift+F6` (Compile), `Cmd+Shift+F7` (Show Model).
+- **Smart isolate detection**: Automatically verifies the isolate under cursor position.
+- **Progress reporting**: Spinning progress bar for long-running operations with cancellation support.
+- **Output Channel**: Formatted results in the "Ivy" output channel.
+- **New settings**: `ivy.tools.verifyTimeout`, `ivy.tools.compileTimeout`, `ivy.tools.autoSaveBeforeAction`.
+- **Configurable restart limits**: `ivy.lsp.maxRestartCount` and `ivy.lsp.restartWindow` settings to control LSP server crash recovery. Set `maxRestartCount` to `-1` for unlimited restarts.
+- LSP custom requests: `ivy/verify`, `ivy/compile`, `ivy/showModel`, `ivy/capabilities`.
+
+### Changed
+
+- Bumped ivy-lsp dependency to v0.5.0.
+
 ## [0.3.3] - 2026-02-25
 
 ### Fixed
@@ -68,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python Auto-Detection**: Automatic discovery of Python interpreter from workspace `.venv`, system `python3`, or `python`.
 - **Graceful Degradation**: Extension provides syntax highlighting and snippets even when the LSP server is unavailable.
 
+[0.5.0]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.0
+[0.3.3]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.2
 [0.3.1]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.0

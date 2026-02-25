@@ -2,7 +2,7 @@
   "name": "ivy-language",
   "displayName": "Ivy Language",
   "description": "Language support for Ivy formal specification files (.ivy) — syntax highlighting, LSP client, snippets",
-  "version": "0.4.4",
+  "version": "0.5.0",
   "publisher": "panther-ivy",
   "license": "MIT",
   "repository": {
@@ -54,6 +54,81 @@
       {
         "command": "ivy.resetServer",
         "title": "Ivy: Reset Language Server Installation"
+      },
+      {
+        "command": "ivy.verify",
+        "title": "Ivy: Verify",
+        "icon": "$(check-all)"
+      },
+      {
+        "command": "ivy.compile",
+        "title": "Ivy: Compile",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "ivy.showModel",
+        "title": "Ivy: Show Model Info",
+        "icon": "$(info)"
+      },
+      {
+        "command": "ivy.cancelOperation",
+        "title": "Ivy: Cancel Running Operation"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "ivy.submenu",
+        "label": "Ivy"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "ivy.submenu",
+          "when": "editorLangId == ivy",
+          "group": "ivy"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "ivy.submenu",
+          "when": "resourceExtname == .ivy",
+          "group": "ivy"
+        }
+      ],
+      "ivy.submenu": [
+        {
+          "command": "ivy.verify",
+          "group": "1_actions"
+        },
+        {
+          "command": "ivy.compile",
+          "group": "1_actions"
+        },
+        {
+          "command": "ivy.showModel",
+          "group": "2_info"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "ivy.verify",
+        "key": "ctrl+shift+f5",
+        "mac": "cmd+shift+f5",
+        "when": "editorLangId == ivy && editorTextFocus"
+      },
+      {
+        "command": "ivy.compile",
+        "key": "ctrl+shift+f6",
+        "mac": "cmd+shift+f6",
+        "when": "editorLangId == ivy && editorTextFocus"
+      },
+      {
+        "command": "ivy.showModel",
+        "key": "ctrl+shift+f7",
+        "mac": "cmd+shift+f7",
+        "when": "editorLangId == ivy && editorTextFocus"
       }
     ],
     "languages": [
@@ -132,6 +207,33 @@
           "enum": ["DEBUG", "INFO", "WARNING", "ERROR"],
           "default": "INFO",
           "description": "Log level for the Ivy LSP server process. Set to DEBUG for verbose diagnostics."
+        },
+        "ivy.lsp.maxRestartCount": {
+          "type": "integer",
+          "default": 5,
+          "minimum": -1,
+          "description": "Maximum number of server restarts within the restart window before giving up. Set to -1 for unlimited restarts."
+        },
+        "ivy.lsp.restartWindow": {
+          "type": "integer",
+          "default": 180,
+          "minimum": 10,
+          "description": "Time window in seconds for counting server restarts. Only applies when maxRestartCount is not -1."
+        },
+        "ivy.tools.verifyTimeout": {
+          "type": "number",
+          "default": 120,
+          "description": "Timeout in seconds for verification."
+        },
+        "ivy.tools.compileTimeout": {
+          "type": "number",
+          "default": 300,
+          "description": "Timeout in seconds for compilation."
+        },
+        "ivy.tools.autoSaveBeforeAction": {
+          "type": "boolean",
+          "default": true,
+          "description": "Auto-save the active file before running Ivy commands."
         }
       }
     }

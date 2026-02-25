@@ -5,6 +5,12 @@ import {
     ServerOptions,
     Trace,
     TransportKind,
+    ErrorHandler,
+    ErrorAction,
+    CloseAction,
+    Message,
+    ErrorHandlerResult,
+    CloseHandlerResult,
 } from "vscode-languageclient/node";
 import { findPython, checkIvyLsp, clearCache, isPythonValid } from "./pythonFinder";
 import {
@@ -14,6 +20,12 @@ import {
     resetManagedVenv,
     getManagedVenvPython,
 } from "./lspInstaller";
+import {
+    verifyCommand,
+    compileCommand,
+    showModelCommand,
+    cancelCommand,
+} from "./ivyActions";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -74,7 +86,29 @@ export async function activate(
                 "Ivy LSP: Managed installation removed. Restarting..."
             );
             await startClient(context);
-        })
+        }),
+        vscode.commands.registerCommand("ivy.verify", (uri?: vscode.Uri) => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            verifyCommand(client, uri);
+        }),
+        vscode.commands.registerCommand("ivy.compile", (uri?: vscode.Uri) => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            compileCommand(client, uri);
+        }),
+        vscode.commands.registerCommand("ivy.showModel", (uri?: vscode.Uri) => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            showModelCommand(client, uri);
+        }),
+        vscode.commands.registerCommand("ivy.cancelOperation", cancelCommand)
     );
 
     const config = vscode.workspace.getConfiguration("ivy");
@@ -96,7 +130,9 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.args") ||
                 e.affectsConfiguration("ivy.lsp.managedInstall") ||
                 e.affectsConfiguration("ivy.lsp.managedInstallPath") ||
-                e.affectsConfiguration("ivy.lsp.logLevel")
+                e.affectsConfiguration("ivy.lsp.logLevel") ||
+                e.affectsConfiguration("ivy.lsp.maxRestartCount") ||
+                e.affectsConfiguration("ivy.lsp.restartWindow")
             ) {
                 clearCache();
                 await stopClient();
@@ -117,6 +153,55 @@ export async function activate(
 
 export async function deactivate(): Promise<void> {
     await stopClient();
+}
+
+// ---------------------------------------------------------------------------
+// Configurable crash recovery
+// ---------------------------------------------------------------------------
+
+class ConfigurableErrorHandler implements ErrorHandler {
+    private restarts: number[] = [];
+    private readonly maxRestartCount: number;
+    private readonly restartWindowMs: number;
+
+    constructor(maxRestartCount: number, restartWindowSeconds: number) {
+        this.maxRestartCount = maxRestartCount;
+        this.restartWindowMs = restartWindowSeconds * 1000;
+    }
+
+    error(
+        _error: Error,
+        _message: Message | undefined,
+        count: number | undefined
+    ): ErrorHandlerResult {
+        if (count && count <= 3) {
+            return { action: ErrorAction.Continue };
+        }
+        return { action: ErrorAction.Shutdown };
+    }
+
+    closed(): CloseHandlerResult {
+        if (this.maxRestartCount === -1) {
+            return { action: CloseAction.Restart };
+        }
+
+        this.restarts.push(Date.now());
+        if (this.restarts.length <= this.maxRestartCount) {
+            return { action: CloseAction.Restart };
+        }
+
+        const diff =
+            this.restarts[this.restarts.length - 1] - this.restarts[0];
+        if (diff <= this.restartWindowMs) {
+            return {
+                action: CloseAction.DoNotRestart,
+                message: `The Ivy Language Server crashed ${this.maxRestartCount + 1} times in the last ${Math.round(this.restartWindowMs / 1000)}s. The server will not be restarted.`,
+            };
+        }
+
+        this.restarts.shift();
+        return { action: CloseAction.Restart };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -244,15 +329,21 @@ async function startWithPython(
         },
     };
 
-    const traceLevel = vscode.workspace
-        .getConfiguration("ivy")
-        .get<string>("lsp.trace.server", "off");
+    const config = vscode.workspace.getConfiguration("ivy");
+
+    const traceLevel = config.get<string>("lsp.trace.server", "off");
+    const maxRestartCount = config.get<number>("lsp.maxRestartCount", 5);
+    const restartWindow = config.get<number>("lsp.restartWindow", 180);
 
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "ivy" }],
         outputChannelName: "Ivy Language Server",
         traceOutputChannel: vscode.window.createOutputChannel(
             "Ivy LSP Trace"
+        ),
+        errorHandler: new ConfigurableErrorHandler(
+            maxRestartCount,
+            restartWindow
         ),
     };
 
