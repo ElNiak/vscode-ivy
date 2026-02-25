@@ -2,7 +2,7 @@
   "name": "ivy-language",
   "displayName": "Ivy Language",
   "description": "Language support for Ivy formal specification files (.ivy) — syntax highlighting, LSP client, snippets",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "publisher": "panther-ivy",
   "license": "MIT",
   "repository": {

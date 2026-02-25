@@ -42,20 +42,6 @@ export function getManagedVenvPython(): string | undefined {
     return fs.existsSync(py) ? py : undefined;
 }
 
-/** Check whether the managed venv has ivy_lsp installed. */
-export function isManagedVenvReady(): boolean {
-    const py = getManagedVenvPython();
-    if (!py) {
-        return false;
-    }
-    try {
-        cp.execFileSync(py, ["-c", "import ivy_lsp"], { timeout: 10_000 });
-        return true;
-    } catch {
-        return false;
-    }
-}
-
 /**
  * Ensure ivy-lsp is installed in the managed venv, creating it if needed.
  *
@@ -66,11 +52,6 @@ export async function ensureIvyLspInstalled(
     pythonPath: string
 ): Promise<string | undefined> {
     const py = venvPython();
-
-    // If already installed, return immediately.
-    if (isManagedVenvReady()) {
-        return py;
-    }
 
     return vscode.window.withProgress(
         {
