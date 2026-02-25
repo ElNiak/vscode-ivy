@@ -86,7 +86,7 @@ export async function ensureIvyLspInstalled(
             const pip = venvPip();
             const ok = await runProcess(
                 pip,
-                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp"],
+                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
                 token
             );
             if (!ok) {
@@ -164,7 +164,7 @@ export async function upgradeManagedIvyLsp(): Promise<boolean> {
         async (_progress, token) => {
             const ok = await runProcess(
                 pip,
-                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp"],
+                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
                 token
             );
             if (!ok) {
