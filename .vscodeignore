@@ -5,5 +5,8 @@ node_modules/**
 .gitignore
 tsconfig.json
 .eslintrc.json
+esbuild.js
 **/*.ts
 **/*.map
+package-lock.json
+.github/**

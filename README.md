@@ -1,6 +1,24 @@
-# Ivy Language for VSCode
+# Ivy Language for VS Code
 
-Language support for [Ivy](https://github.com/ElNiak/Panther-IVy) formal specification files (`.ivy`).
+[![CI](https://github.com/ElNiak/vscode-ivy/actions/workflows/ci.yml/badge.svg)](https://github.com/ElNiak/vscode-ivy/actions/workflows/ci.yml)
+
+Language support for [Ivy](https://github.com/ElNiak/Panther-IVy) formal specification files (`.ivy`) — syntax highlighting, LSP integration, and snippets.
+
+## Installation
+
+### From the Marketplace (Recommended)
+
+Search for **"Ivy Language"** in the VS Code Extensions panel, or run:
+
+```
+ext install panther-ivy.ivy-language
+```
+
+### From VSIX
+
+1. Download the latest `.vsix` from [Releases](https://github.com/ElNiak/vscode-ivy/releases)
+2. In VS Code: Extensions sidebar > `...` menu > "Install from VSIX..."
+3. Or: `code --install-extension ivy-language-0.1.0.vsix`
 
 ## Features
 
@@ -40,27 +58,6 @@ Code templates for common Ivy patterns:
 - Word selection includes qualified names (`frame.ack.range`)
 - Code folding on `{`/`}`
 
-## Installation
-
-### From VSIX (Recommended)
-
-1. Build the extension:
-   ```bash
-   cd vscode-ivy
-   npm install
-   npm run compile
-   npx vsce package
-   ```
-2. Install the `.vsix` file:
-   - VSCode: Extensions sidebar > `...` menu > "Install from VSIX..."
-   - Or: `code --install-extension ivy-language-0.1.0.vsix`
-
-### For Development
-
-1. Open `vscode-ivy/` in VSCode
-2. Press F5 to launch the Extension Development Host
-3. Open any `.ivy` file
-
 ## Prerequisites
 
 ### Syntax Highlighting Only
@@ -69,12 +66,11 @@ No prerequisites. The TextMate grammar works standalone.
 
 ### Full LSP Support
 
-- Python 3.10+
-- `ivy_lsp` package:
-  ```bash
-  cd panther_ivy
-  pip install -e ".[lsp]"
-  ```
+Requires Python 3.10+ and the `ivy_lsp` package:
+
+```bash
+pip install "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"
+```
 
 ## Configuration
 
@@ -97,13 +93,13 @@ The extension searches for Python in this order:
 
 ### "No Python interpreter found"
 
-Set `ivy.pythonPath` in your VSCode settings to point to a Python 3.10+ interpreter.
+Set `ivy.pythonPath` in your VS Code settings to point to a Python 3.10+ interpreter.
 
 ### "ivy_lsp package is not installed"
 
-Install the LSP server from the panther_ivy directory:
+Install the LSP server:
 ```bash
-pip install -e ".[lsp]"
+pip install "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"
 ```
 
 ### LSP server crashes
@@ -115,23 +111,18 @@ The extension auto-restarts the server up to 3 times within 5 minutes.
 
 The extension degrades gracefully. You still get syntax highlighting, snippets, and language configuration without the LSP server.
 
-## Development
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/ElNiak/vscode-ivy/blob/main/CONTRIBUTING.md) or clone the repo and press F5 to launch the Extension Development Host.
 
 ```bash
+git clone https://github.com/ElNiak/vscode-ivy.git
 cd vscode-ivy
-npm install          # Install dependencies
-npm run compile      # Build TypeScript
-npm run watch        # Watch mode
-npm run lint         # ESLint
-npm test             # Run tests (requires VSCode)
-npx vsce package     # Package as .vsix
+npm install
+npm run compile
+# Press F5 in VS Code to launch
 ```
 
-## Architecture
+## License
 
-This is a **thin TypeScript client** — all language intelligence lives in the Python LSP server (`ivy_lsp/`). The extension:
-
-1. Registers the `.ivy` language, grammar, and snippets
-2. Discovers a suitable Python interpreter
-3. Spawns `python -m ivy_lsp` over stdio
-4. Bridges VSCode UI to the LSP server via `vscode-languageclient`
+MIT

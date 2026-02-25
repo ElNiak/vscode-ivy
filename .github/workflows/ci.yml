@@ -28,4 +28,4 @@ jobs:
         run: npm run compile
 
       - name: Package extension
-        run: npx @vscode/vsce package --no-dependencies
+        run: npx @vscode/vsce package

@@ -9,6 +9,19 @@
     "type": "git",
     "url": "https://github.com/ElNiak/vscode-ivy"
   },
+  "icon": "icons/ivy-extension-icon.png",
+  "homepage": "https://github.com/ElNiak/vscode-ivy#readme",
+  "galleryBanner": {
+    "color": "#1a1f3a",
+    "theme": "dark"
+  },
+  "badges": [
+    {
+      "url": "https://github.com/ElNiak/vscode-ivy/actions/workflows/ci.yml/badge.svg",
+      "href": "https://github.com/ElNiak/vscode-ivy/actions/workflows/ci.yml",
+      "description": "CI"
+    }
+  ],
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -94,8 +107,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
+    "bundle": "node esbuild.js --production",
+    "bundle:dev": "node esbuild.js",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "pretest": "npm run compile",
@@ -114,6 +129,7 @@
     "@vscode/vsce": "^2.22.0",
     "eslint": "^8.56.0",
     "mocha": "^10.3.0",
+    "esbuild": "^0.24.0",
     "typescript": "^5.3.3",
     "vscode-tmgrammar-test": "^0.1.3"
   }
