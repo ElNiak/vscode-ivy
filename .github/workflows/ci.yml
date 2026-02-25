@@ -3,11 +3,12 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -27,5 +28,17 @@ jobs:
       - name: Compile
         run: npm run compile
 
+      - name: Run tests
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: npm test
+
       - name: Package extension
         run: npx @vscode/vsce package
+
+      - name: Upload VSIX artifact
+        if: matrix.node-version == 22
+        uses: actions/upload-artifact@v4
+        with:
+          name: ivy-language-vsix
+          path: "*.vsix"
