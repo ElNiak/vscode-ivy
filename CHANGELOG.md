@@ -5,6 +5,16 @@ All notable changes to the Ivy Language extension will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-02-25
+
+### Fixed
+
+- Fixed `NameError: name 'importer' is not defined` crash when parsing `.ivy` files with `include`/`using` directives, enabling full workspace indexing for projects like QUIC that rely on includes.
+
+### Changed
+
+- Bumped ivy-lsp dependency to v0.3.3.
+
 ## [0.3.2] - 2026-02-25
 
 ### Fixed
