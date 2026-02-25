@@ -18,7 +18,7 @@ ext install panther-ivy.ivy-language
 
 1. Download the latest `.vsix` from [Releases](https://github.com/ElNiak/vscode-ivy/releases)
 2. In VS Code: Extensions sidebar > `...` menu > "Install from VSIX..."
-3. Or: `code --install-extension ivy-language-0.1.0.vsix`
+3. Or: `code --install-extension ivy-language-0.5.1.vsix`
 
 ## Features
 
@@ -50,6 +50,17 @@ When the Ivy LSP server is installed, you get:
 Code templates for common Ivy patterns:
 `module`, `object`, `action`, `type`, `struct`, `variant`, `isolate`, `property`, `invariant`, `include`, `instance`, `forall`, `exists`, `if`, and more.
 
+### Commands
+
+| Command | Shortcut | Description |
+|---------|----------|-------------|
+| `Ivy: Verify` | `Cmd+Shift+F5` (`Ctrl+Shift+F5`) | Run `ivy_check` on the current file or isolate under cursor. |
+| `Ivy: Compile` | `Cmd+Shift+F6` (`Ctrl+Shift+F6`) | Compile the current Ivy file with `ivyc`. |
+| `Ivy: Show Model` | `Cmd+Shift+F7` (`Ctrl+Shift+F7`) | Display model structure via `ivy_show`. |
+| `Ivy: Cancel Running Operation` | — | Cancel an in-progress verify/compile/show. |
+
+All commands are also available via right-click context menu on `.ivy` files (editor and explorer).
+
 ### Language Configuration
 
 - Line comments with `#`
@@ -80,6 +91,16 @@ pip install "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"
 | `ivy.lsp.enabled` | boolean | `true` | Enable/disable the LSP server. |
 | `ivy.lsp.args` | string[] | `[]` | Extra arguments for the LSP server. |
 | `ivy.lsp.trace.server` | string | `"off"` | Trace level: `off`, `messages`, `verbose`. |
+| `ivy.lsp.managedInstall` | boolean | `true` | Auto-install ivy-lsp into a managed virtualenv. |
+| `ivy.lsp.managedInstallPath` | string | `""` | Custom path for managed install (default: `~/.ivy-lsp/venv/`). |
+| `ivy.lsp.logLevel` | string | `"INFO"` | LSP server log level: `DEBUG`, `INFO`, `WARNING`, `ERROR`. |
+| `ivy.lsp.maxRestartCount` | integer | `5` | Max server restarts in window. `-1` = unlimited. |
+| `ivy.lsp.restartWindow` | integer | `180` | Restart count window in seconds. |
+| `ivy.lsp.includePaths` | string[] | `[]` | Directories to include for workspace indexing. Empty = scan all. |
+| `ivy.lsp.excludePaths` | string[] | `["submodules", "test"]` | Directories to exclude from workspace indexing. |
+| `ivy.tools.verifyTimeout` | number | `120` | Verify command timeout in seconds. |
+| `ivy.tools.compileTimeout` | number | `300` | Compile command timeout in seconds. |
+| `ivy.tools.autoSaveBeforeAction` | boolean | `true` | Auto-save file before verify/compile. |
 
 ### Python Auto-Detection
 
@@ -88,6 +109,29 @@ The extension searches for Python in this order:
 2. Workspace `.venv/bin/python`
 3. System `python3`
 4. System `python`
+
+### Workspace Indexing
+
+The LSP server indexes `.ivy` files using a two-layer directory filtering system:
+
+**Hardcoded exclusions** (always skipped): `build`, `dist`, `.git`, `.hg`, `.svn`, `node_modules`, `__pycache__`, `.tox`, `.mypy_cache`, `.pytest_cache`, `.venv`, `venv`, and directories matching `pytest-*`.
+
+**User-configurable `excludePaths`** — additional directories to skip (default: `submodules`, `test`). Paths are relative to the workspace root and support prefix matching (`foo` excludes `foo/bar/baz`).
+
+**User-configurable `includePaths`** — whitelist mode: when non-empty, only those subdirectories are scanned. Empty means scan everything (minus exclusions).
+
+**Why two layers?** The hardcoded layer prevents scanning VCS metadata, caches, and build artifacts that never contain `.ivy` files. The user layer allows project-specific scoping without modifying code.
+
+Changing `includePaths` or `excludePaths` triggers an automatic LSP restart and full re-index.
+
+Example `.vscode/settings.json`:
+
+```json
+{
+  "ivy.lsp.includePaths": ["protocol-testing/quic"],
+  "ivy.lsp.excludePaths": ["submodules", "test", "apt"]
+}
+```
 
 ## Troubleshooting
 
@@ -105,7 +149,7 @@ pip install "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"
 ### LSP server crashes
 
 Check the "Ivy Language Server" output channel (View > Output > select "Ivy Language Server").
-The extension auto-restarts the server up to 3 times within 5 minutes.
+The extension auto-restarts the server up to `ivy.lsp.maxRestartCount` times (default: 5) within `ivy.lsp.restartWindow` seconds (default: 180).
 
 ### Syntax highlighting works but no LSP features
 

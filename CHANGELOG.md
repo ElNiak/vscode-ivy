@@ -5,6 +5,25 @@ All notable changes to the Ivy Language extension will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-02-25
+
+### Changed
+
+- Updated README with full configuration table (15 settings), Commands section, Workspace Indexing documentation, and configurable restart parameters.
+- Updated CHANGELOG with retroactive v0.5.1 entry.
+- Bumped ivy-lsp dependency to v0.5.2.
+
+## [0.5.1] - 2026-02-25
+
+### Added
+
+- **Workspace filtering settings**: `ivy.lsp.includePaths` (whitelist) and `ivy.lsp.excludePaths` (blacklist) control which directories the LSP indexes. Changing either setting triggers automatic server restart.
+- **Flat staging directory**: IncludeResolver creates a flat symlink staging dir mirroring `ivyc`'s `include/1.7/` layout for deterministic include resolution.
+
+### Changed
+
+- Bumped ivy-lsp dependency to v0.5.1.
+
 ## [0.5.0] - 2026-02-25
 
 ### Added
@@ -86,6 +105,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python Auto-Detection**: Automatic discovery of Python interpreter from workspace `.venv`, system `python3`, or `python`.
 - **Graceful Degradation**: Extension provides syntax highlighting and snippets even when the LSP server is unavailable.
 
+[0.5.2]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.2
+[0.5.1]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.0
 [0.3.3]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.3
 [0.3.2]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.3.2
