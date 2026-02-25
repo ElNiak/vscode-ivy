@@ -10,6 +10,7 @@ import { findPython, checkIvyLsp, clearCache, isPythonValid } from "./pythonFind
 import {
     ensureIvyLspInstalled,
     installZ3Support,
+    upgradeManagedIvyLsp,
     resetManagedVenv,
     getManagedVenvPython,
 } from "./lspInstaller";
@@ -137,6 +138,17 @@ async function startClient(
     }
 
     let ivyLspVersion = await checkIvyLsp(pythonPath);
+
+    // If the managed venv has an outdated version, upgrade automatically.
+    const extensionVersion = context.extension.packageJSON.version as string;
+    if (ivyLspVersion && ivyLspVersion !== extensionVersion && getManagedVenvPython()) {
+        setStatus("installing");
+        const ok = await upgradeManagedIvyLsp();
+        if (ok) {
+            clearCache();
+            ivyLspVersion = await checkIvyLsp(pythonPath);
+        }
+    }
 
     // If ivy-lsp is not installed, try managed auto-install.
     if (!ivyLspVersion) {

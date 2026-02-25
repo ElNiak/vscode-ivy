@@ -163,6 +163,40 @@ export async function installZ3Support(
 }
 
 /**
+ * Upgrade ivy-lsp in the managed venv to the latest version.
+ *
+ * @returns `true` on success.
+ */
+export async function upgradeManagedIvyLsp(): Promise<boolean> {
+    const py = getManagedVenvPython();
+    if (!py) {
+        return false;
+    }
+
+    const pip = venvPip();
+    return vscode.window.withProgress(
+        {
+            location: vscode.ProgressLocation.Notification,
+            title: "Ivy LSP: Upgrading...",
+            cancellable: true,
+        },
+        async (_progress, token) => {
+            const ok = await runProcess(
+                pip,
+                ["install", "--upgrade", "ivy-lsp"],
+                token
+            );
+            if (!ok) {
+                vscode.window.showErrorMessage(
+                    "Ivy LSP: Failed to upgrade. Check your network connection."
+                );
+            }
+            return ok;
+        }
+    );
+}
+
+/**
  * Delete the managed venv directory entirely.
  */
 export async function resetManagedVenv(): Promise<void> {
