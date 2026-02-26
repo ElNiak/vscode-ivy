@@ -5,6 +5,22 @@ All notable changes to the Ivy Language extension will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-26
+
+### Added
+
+- **Test scope management**: Status bar item shows the active test file. Quick Pick (`ivy.setActiveTest`) lets you choose which test scopes requirement counts and diagnostics.
+- **Test listing command**: `ivy.listTests` prints all discovered test files to the Ivy output channel.
+- **Auto-detection**: When `ivy.testScope.autoDetect` is enabled, opening a test file automatically sets it as the active scope. The scope stays sticky when switching to non-test files.
+- **New settings**: `ivy.testScope.enabled`, `ivy.testScope.autoDetect`, `ivy.testScope.showNctLabels` for controlling test scope behavior and NCT label display.
+- **Keybinding**: `Cmd+Shift+F8` / `Ctrl+Shift+F8` to set active test from the editor.
+- **Context menu**: "Set Active Test" in the Ivy editor right-click submenu.
+- **6 new integration tests**: Command registration tests for `ivy.setActiveTest` and `ivy.listTests`, plus a dedicated `testScope.test.ts` regression suite (4 tests).
+
+### Changed
+
+- Bumped ivy-lsp dependency to v0.7.0 (scoped requirement model, NCT classification, per-test diagnostics).
+
 ## [0.5.5] - 2026-02-25
 
 ### Added
@@ -135,6 +151,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Python Auto-Detection**: Automatic discovery of Python interpreter from workspace `.venv`, system `python3`, or `python`.
 - **Graceful Degradation**: Extension provides syntax highlighting and snippets even when the LSP server is unavailable.
 
+[0.7.0]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.7.0
 [0.5.5]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.5
 [0.5.4]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.4
 [0.5.3]: https://github.com/ElNiak/vscode-ivy/releases/tag/v0.5.3
