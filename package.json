@@ -2,7 +2,7 @@
   "name": "ivy-language",
   "displayName": "Ivy Language",
   "description": "Language support for Ivy formal specification files (.ivy) \u2014 syntax highlighting, LSP client, snippets",
-  "version": "0.5.5",
+  "version": "0.6.0",
   "publisher": "panther-ivy",
   "license": "MIT",
   "repository": {
@@ -280,7 +280,8 @@
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "pretest": "npm run compile",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "test:unit": "npx mocha out/test/unit/**/*.test.js"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

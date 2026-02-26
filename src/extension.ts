@@ -26,15 +26,10 @@ import {
     showModelCommand,
     cancelCommand,
 } from "./ivyActions";
+import { isOlderVersion } from "./version";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
-
-/** Extract "major.minor" from a semver string (e.g. "0.5.3" -> "0.5"). */
-function majorMinor(v: string): string {
-    const parts = v.split(".");
-    return parts.slice(0, 2).join(".");
-}
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -238,14 +233,14 @@ async function startClient(
     // If the managed venv has an outdated version, upgrade automatically.
     const extensionVersion = context.extension.packageJSON.version as string;
     const managedPy = getManagedVenvPython();
-    if (ivyLspVersion && majorMinor(ivyLspVersion) !== majorMinor(extensionVersion) && managedPy) {
+    if (ivyLspVersion && isOlderVersion(ivyLspVersion, extensionVersion) && managedPy) {
         setStatus("installing");
         const ok = await upgradeManagedIvyLsp();
         if (ok) {
             clearCache();
             // Re-check from the managed venv directly, not the originally-found python
             const newVersion = await checkIvyLsp(managedPy);
-            if (newVersion && majorMinor(newVersion) !== majorMinor(extensionVersion)) {
+            if (newVersion && newVersion !== extensionVersion) {
                 vscode.window.showWarningMessage(
                     `Ivy LSP: Upgraded to v${newVersion} but extension expects v${extensionVersion}. ` +
                     `The latest published version may not match yet.`
