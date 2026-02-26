@@ -26,10 +26,19 @@ import {
     showModelCommand,
     cancelCommand,
 } from "./ivyActions";
+import {
+    createTestScopeStatusBar,
+    setActiveTestCommand,
+    listTestsCommand,
+    onActiveEditorChanged,
+    refreshStatusBar,
+    updateStatusBar,
+} from "./testScope";
 import { isOlderVersion } from "./version";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
+let testScopeStatusBar: vscode.StatusBarItem;
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -39,6 +48,14 @@ export async function activate(
         100
     );
     context.subscriptions.push(statusBarItem);
+
+    testScopeStatusBar = createTestScopeStatusBar(context);
+    const scopeEnabled = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("testScope.enabled", true);
+    if (!scopeEnabled) {
+        testScopeStatusBar.hide();
+    }
 
     // Register commands.
     context.subscriptions.push(
@@ -109,7 +126,22 @@ export async function activate(
             }
             showModelCommand(client, uri);
         }),
-        vscode.commands.registerCommand("ivy.cancelOperation", cancelCommand)
+        vscode.commands.registerCommand("ivy.cancelOperation", cancelCommand),
+        vscode.commands.registerCommand("ivy.setActiveTest", async () => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            await setActiveTestCommand(client);
+            await refreshStatusBar(client, testScopeStatusBar);
+        }),
+        vscode.commands.registerCommand("ivy.listTests", async () => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            await listTestsCommand(client);
+        })
     );
 
     const config = vscode.workspace.getConfiguration("ivy");
@@ -122,9 +154,22 @@ export async function activate(
 
     await startClient(context);
 
-    // Restart the server when relevant settings change.
+    // React to configuration changes.
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(async (e) => {
+            // testScope.enabled: show/hide status bar without restarting LSP.
+            if (e.affectsConfiguration("ivy.testScope.enabled")) {
+                const scopeNowEnabled = vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<boolean>("testScope.enabled", true);
+                if (scopeNowEnabled) {
+                    testScopeStatusBar.show();
+                } else {
+                    testScopeStatusBar.hide();
+                }
+            }
+
+            // LSP-related settings: restart the server.
             if (
                 e.affectsConfiguration("ivy.pythonPath") ||
                 e.affectsConfiguration("ivy.lsp.enabled") ||
@@ -152,6 +197,20 @@ export async function activate(
                     setStatus("syntax-only");
                 }
             }
+        })
+    );
+
+    // Auto-detect test scope on editor focus change.
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+            if (!client) {
+                return;
+            }
+            const autoDetect = vscode.workspace
+                .getConfiguration("ivy")
+                .get<boolean>("testScope.autoDetect", true);
+            await onActiveEditorChanged(client, editor, autoDetect);
+            await refreshStatusBar(client, testScopeStatusBar);
         })
     );
 }
@@ -417,6 +476,14 @@ async function startWithPython(
         if (!modeDetected) {
             setStatus("running-full", version);
         }
+        // Refresh test scope status bar after successful start.
+        const tsScopeEnabled = vscode.workspace
+            .getConfiguration("ivy")
+            .get<boolean>("testScope.enabled", true);
+        if (tsScopeEnabled) {
+            testScopeStatusBar.show();
+            await refreshStatusBar(client, testScopeStatusBar);
+        }
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
@@ -435,6 +502,9 @@ async function stopClient(): Promise<void> {
             // Client may already be stopped.
         }
         client = undefined;
+    }
+    if (testScopeStatusBar) {
+        updateStatusBar(testScopeStatusBar, null);
     }
 }
 
