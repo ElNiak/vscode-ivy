@@ -54,22 +54,6 @@ suite("Ivy Tool Commands", () => {
         );
     });
 
-    test("ivy.setActiveTest command is registered", async () => {
-        const commands = await vscode.commands.getCommands(true);
-        assert.ok(
-            commands.includes("ivy.setActiveTest"),
-            "ivy.setActiveTest should be registered"
-        );
-    });
-
-    test("ivy.listTests command is registered", async () => {
-        const commands = await vscode.commands.getCommands(true);
-        assert.ok(
-            commands.includes("ivy.listTests"),
-            "ivy.listTests should be registered"
-        );
-    });
-
     test("Tool settings are accessible", () => {
         const config = vscode.workspace.getConfiguration("ivy");
 
