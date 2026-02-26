@@ -240,7 +240,7 @@ async function startClient(
             clearCache();
             // Re-check from the managed venv directly, not the originally-found python
             const newVersion = await checkIvyLsp(managedPy);
-            if (newVersion && newVersion !== extensionVersion) {
+            if (newVersion && isOlderVersion(newVersion, extensionVersion)) {
                 vscode.window.showWarningMessage(
                     `Ivy LSP: Upgraded to v${newVersion} but extension expects v${extensionVersion}. ` +
                     `The latest published version may not match yet.`
