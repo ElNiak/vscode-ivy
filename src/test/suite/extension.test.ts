@@ -63,6 +63,34 @@ suite("Ivy Extension Activation", () => {
         );
     });
 
+    test("Test scope settings are accessible", () => {
+        const config = vscode.workspace.getConfiguration("ivy");
+
+        const scopeEnabled = config.get<boolean>("testScope.enabled");
+        assert.strictEqual(
+            typeof scopeEnabled,
+            "boolean",
+            "ivy.testScope.enabled should be a boolean"
+        );
+        assert.strictEqual(scopeEnabled, true, "Default testScope.enabled should be true");
+
+        const autoDetect = config.get<boolean>("testScope.autoDetect");
+        assert.strictEqual(
+            typeof autoDetect,
+            "boolean",
+            "ivy.testScope.autoDetect should be a boolean"
+        );
+        assert.strictEqual(autoDetect, true, "Default testScope.autoDetect should be true");
+
+        const showNct = config.get<boolean>("testScope.showNctLabels");
+        assert.strictEqual(
+            typeof showNct,
+            "boolean",
+            "ivy.testScope.showNctLabels should be a boolean"
+        );
+        assert.strictEqual(showNct, true, "Default testScope.showNctLabels should be true");
+    });
+
     test("Opening .ivy content triggers ivy language mode", async () => {
         const doc = await vscode.workspace.openTextDocument({
             language: "ivy",

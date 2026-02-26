@@ -73,6 +73,16 @@
       {
         "command": "ivy.cancelOperation",
         "title": "Ivy: Cancel Running Operation"
+      },
+      {
+        "command": "ivy.setActiveTest",
+        "title": "Ivy: Set Active Test",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "ivy.listTests",
+        "title": "Ivy: List Available Tests",
+        "icon": "$(list-unordered)"
       }
     ],
     "submenus": [
@@ -108,6 +118,10 @@
         {
           "command": "ivy.showModel",
           "group": "2_info"
+        },
+        {
+          "command": "ivy.setActiveTest",
+          "group": "1_actions"
         }
       ]
     },
@@ -128,6 +142,12 @@
         "command": "ivy.showModel",
         "key": "ctrl+shift+f7",
         "mac": "cmd+shift+f7",
+        "when": "editorLangId == ivy && editorTextFocus"
+      },
+      {
+        "command": "ivy.setActiveTest",
+        "key": "ctrl+shift+f8",
+        "mac": "cmd+shift+f8",
         "when": "editorLangId == ivy && editorTextFocus"
       }
     ],
@@ -268,6 +288,21 @@
           "type": "boolean",
           "default": true,
           "description": "Auto-save the active file before running Ivy commands."
+        },
+        "ivy.testScope.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable test scope management. Shows active test in the status bar and enables automatic scope detection."
+        },
+        "ivy.testScope.autoDetect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically set the active test when opening a test file. The scope stays sticky when switching to non-test files."
+        },
+        "ivy.testScope.showNctLabels": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show NCT classification tags ([ASSUMPTION]/[GUARANTEE]) in code lens labels when a test scope is active."
         }
       }
     }
