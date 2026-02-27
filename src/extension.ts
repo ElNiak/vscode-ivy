@@ -190,6 +190,25 @@ export async function activate(
             if (stateTracker) {
                 DashboardPanel.show(context, stateTracker);
             }
+        }),
+        vscode.commands.registerCommand("ivy.showOutput", () => {
+            client?.outputChannel?.show(true);
+        }),
+        vscode.commands.registerCommand("ivy.toggleDebugLog", async () => {
+            const config = vscode.workspace.getConfiguration("ivy");
+            const current = config.get<string>("lsp.logLevel", "INFO");
+            const next = current === "DEBUG" ? "INFO" : "DEBUG";
+            await config.update(
+                "lsp.logLevel",
+                next,
+                vscode.ConfigurationTarget.Workspace
+            );
+            // Config change handler will restart the server automatically.
+            // Show the output channel so the user sees the logs.
+            client?.outputChannel?.show(true);
+            vscode.window.showInformationMessage(
+                `Ivy LSP: Log level set to ${next}. Server restarting...`
+            );
         })
     );
 

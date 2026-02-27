@@ -136,6 +136,16 @@
         "command": "ivy.editExcludePaths",
         "title": "Ivy: Edit Exclude Paths",
         "icon": "$(folder)"
+      },
+      {
+        "command": "ivy.showOutput",
+        "title": "Ivy: Show Server Output",
+        "icon": "$(output)"
+      },
+      {
+        "command": "ivy.toggleDebugLog",
+        "title": "Ivy: Toggle Debug Logging",
+        "icon": "$(bug)"
       }
     ],
     "submenus": [
