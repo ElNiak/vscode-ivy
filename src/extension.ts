@@ -281,17 +281,25 @@ export async function activate(
         })
     );
 
-    // Auto-detect test scope on editor focus change.
+    // Auto-detect test scope on editor focus change (debounced to avoid
+    // flooding the server with ivy/listTests requests when switching tabs).
+    let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
     context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-            if (!client) {
-                return;
+        vscode.window.onDidChangeActiveTextEditor((editor) => {
+            if (editorChangeTimer) {
+                clearTimeout(editorChangeTimer);
             }
-            const autoDetect = vscode.workspace
-                .getConfiguration("ivy")
-                .get<boolean>("testScope.autoDetect", true);
-            await onActiveEditorChanged(client, editor, autoDetect);
-            await refreshStatusBar(client, testScopeStatusBar);
+            editorChangeTimer = setTimeout(async () => {
+                editorChangeTimer = undefined;
+                if (!client) {
+                    return;
+                }
+                const autoDetect = vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<boolean>("testScope.autoDetect", true);
+                await onActiveEditorChanged(client, editor, autoDetect);
+                await refreshStatusBar(client, testScopeStatusBar);
+            }, 500);
         })
     );
 }
@@ -475,6 +483,10 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<string[]>("lsp.excludePaths", ["submodules", "test"]);
 
+    const parseWorkers = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.parseWorkers", 0);
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
@@ -485,6 +497,7 @@ async function startWithPython(
                 IVY_LSP_LOG_LEVEL: logLevel,
                 IVY_LSP_INCLUDE_PATHS: includePaths.join(","),
                 IVY_LSP_EXCLUDE_PATHS: excludePaths.join(","),
+                IVY_LSP_PARSE_WORKERS: String(parseWorkers),
             },
         },
     };

@@ -363,6 +363,13 @@
           ],
           "description": "Directories to exclude from workspace indexing (relative to workspace root). The LSP stages non-excluded files into a flat directory for unambiguous include resolution. Add 'apt' to skip APT models. Exclusions apply within included paths."
         },
+        "ivy.lsp.parseWorkers": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 16,
+          "description": "Number of parallel worker processes for deep indexing. 0 = auto (half CPU cores), 1 = serial."
+        },
         "ivy.codeLens.enabled": {
           "type": "boolean",
           "default": true,
