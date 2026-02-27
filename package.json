@@ -42,6 +42,24 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ivy-monitor",
+          "title": "Ivy LSP",
+          "icon": "icons/ivy-dark.png"
+        }
+      ]
+    },
+    "views": {
+      "ivy-monitor": [
+        {
+          "id": "ivyMonitor",
+          "name": "Monitor",
+          "type": "tree"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ivy.installServer",
@@ -83,6 +101,41 @@
         "command": "ivy.listTests",
         "title": "Ivy: List Available Tests",
         "icon": "$(list-unordered)"
+      },
+      {
+        "command": "ivy.openDashboard",
+        "title": "Ivy: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "ivy.reindexWorkspace",
+        "title": "Ivy: Re-index Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.clearCache",
+        "title": "Ivy: Clear Cache",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ivy.checkForUpdates",
+        "title": "Ivy: Check for LSP Updates",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ivy.refreshMonitor",
+        "title": "Ivy: Refresh Monitor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.editIncludePaths",
+        "title": "Ivy: Edit Include Paths",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "ivy.editExcludePaths",
+        "title": "Ivy: Edit Exclude Paths",
+        "icon": "$(folder)"
       }
     ],
     "submenus": [
@@ -104,6 +157,42 @@
           "submenu": "ivy.submenu",
           "when": "resourceExtname == .ivy",
           "group": "ivy"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ivy.refreshMonitor",
+          "when": "view == ivyMonitor",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.openDashboard",
+          "when": "view == ivyMonitor",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ivy.reindexWorkspace",
+          "when": "viewItem == indexing || viewItem == indexingItem",
+          "group": "inline"
+        },
+        {
+          "command": "ivy.clearCache",
+          "when": "viewItem == indexing || viewItem == indexingItem"
+        },
+        {
+          "command": "ivy.cancelOperation",
+          "when": "viewItem == activeOperation",
+          "group": "inline"
+        },
+        {
+          "command": "ivy.editIncludePaths",
+          "when": "viewItem == configItem"
+        },
+        {
+          "command": "ivy.editExcludePaths",
+          "when": "viewItem == configItem"
         }
       ],
       "ivy.submenu": [
