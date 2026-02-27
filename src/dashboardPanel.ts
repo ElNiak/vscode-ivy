@@ -122,6 +122,44 @@ export class DashboardPanel {
 
         const ps = featureStatus?.analysisPipeline;
 
+        const deepProg = this.tracker.deepIndexProgress;
+        const deepPct =
+            deepProg && deepProg.totalTests > 0
+                ? Math.round(
+                      (deepProg.completedTests / deepProg.totalTests) * 100
+                  )
+                : 0;
+        const deepStatusLabel = deepProg
+            ? deepProg.running
+                ? `Parsing: ${deepProg.completedTests}/${deepProg.totalTests} test files`
+                : `Complete: ${deepProg.completedTests}/${deepProg.totalTests}`
+            : "Not available";
+        const fileStatusRows = (deepProg?.fileStatuses ?? [])
+            .map((fs) => {
+                const icon = fs.deepParseSucceeded
+                    ? "&#x2713;"
+                    : fs.deepParseAttempted
+                      ? "&#x2717;"
+                      : "&#x25CB;";
+                const color = fs.deepParseSucceeded
+                    ? "#4caf50"
+                    : fs.deepParseAttempted
+                      ? "#f44336"
+                      : "#aaa";
+                const status = fs.deepParseSucceeded
+                    ? "deep"
+                    : fs.deepParseAttempted
+                      ? "failed"
+                      : "shallow";
+                return `<tr>
+            <td style="color:${color}">${icon}</td>
+            <td>${escapeHtml(fs.file.split("/").pop() ?? "")}</td>
+            <td>${escapeHtml(status)}</td>
+            <td>${fs.parseError ? escapeHtml(fs.parseError) : "-"}</td>
+          </tr>`;
+            })
+            .join("");
+
         return `<!DOCTYPE html>
 <html><head>
 <style>
@@ -155,6 +193,18 @@ export class DashboardPanel {
       <div class="stat"><div class="value">${stats?.testScopeCount ?? 0}</div><div class="label">Tests</div></div>
       <div class="stat"><div class="value">${stats?.staleFiles?.length ?? 0}</div><div class="label">Stale</div></div>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>Deep Indexing</h2>
+    <p>${escapeHtml(deepStatusLabel)}</p>
+    <div style="background: var(--vscode-editorWidget-border); border-radius: 4px; height: 8px; margin: 8px 0;">
+      <div style="background: #4caf50; height: 100%; width: ${deepPct}%; border-radius: 4px; transition: width 0.3s;"></div>
+    </div>
+    <table>
+      <tr><th></th><th>File</th><th>Depth</th><th>Error</th></tr>
+      ${fileStatusRows || '<tr><td colspan="4">No data</td></tr>'}
+    </table>
   </div>
 
   <div class="card">
