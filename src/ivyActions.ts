@@ -11,6 +11,7 @@ interface IvyToolResult {
     diagnosticCount?: number;
     isolate?: string;
     binaryPath?: string;
+    availableIsolates?: string[];
 }
 
 // ---- Output Channel ----
@@ -101,10 +102,10 @@ async function runAction(
     label: string,
     params: Record<string, unknown>,
     resourceUri?: vscode.Uri
-): Promise<void> {
+): Promise<IvyToolResult | undefined> {
     const target = await getTargetUri(resourceUri);
     if (!target) {
-        return;
+        return undefined;
     }
 
     await autoSave();
@@ -145,11 +146,13 @@ async function runAction(
 
         if (result.success) {
             vscode.window.showInformationMessage(`Ivy: ${label} passed`);
-        } else {
+        } else if (!result.availableIsolates?.length) {
             vscode.window.showWarningMessage(
                 `Ivy: ${label} failed - see Output`
             );
         }
+
+        return result;
     } catch (err) {
         if (activeCts?.token.isCancellationRequested) {
             channel.appendLine("[Cancelled]");
@@ -158,6 +161,7 @@ async function runAction(
             channel.appendLine(`[Error] ${msg}`);
             vscode.window.showErrorMessage(`Ivy: ${label} error - ${msg}`);
         }
+        return undefined;
     } finally {
         vscode.commands.executeCommand(
             "setContext",
@@ -195,5 +199,14 @@ export async function showModelCommand(
     client: LanguageClient,
     resourceUri?: vscode.Uri
 ): Promise<void> {
-    await runAction(client, "ivy/showModel", "Show Model", {}, resourceUri);
+    const result = await runAction(client, "ivy/showModel", "Show Model", {}, resourceUri);
+    if (result && !result.success && result.availableIsolates?.length) {
+        const pick = await vscode.window.showQuickPick(
+            result.availableIsolates,
+            { placeHolder: "Select isolate to show" }
+        );
+        if (pick) {
+            await runAction(client, "ivy/showModel", "Show Model", { isolate: pick }, resourceUri);
+        }
+    }
 }
