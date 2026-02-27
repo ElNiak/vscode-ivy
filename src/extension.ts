@@ -35,10 +35,15 @@ import {
     updateStatusBar,
 } from "./testScope";
 import { isOlderVersion } from "./version";
+import { LspStateTracker } from "./lspStateTracker";
+import { MonitorTreeProvider } from "./monitorTreeProvider";
+import { DashboardPanel } from "./dashboardPanel";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
 let testScopeStatusBar: vscode.StatusBarItem;
+let stateTracker: LspStateTracker | undefined;
+let treeProvider: MonitorTreeProvider | undefined;
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -141,6 +146,50 @@ export async function activate(
                 return;
             }
             await listTestsCommand(client);
+        }),
+        vscode.commands.registerCommand("ivy.refreshMonitor", () =>
+            stateTracker?.refreshNow()
+        ),
+        vscode.commands.registerCommand("ivy.reindexWorkspace", async () => {
+            const result = await stateTracker?.sendReindex();
+            if (result) {
+                vscode.window.showInformationMessage(result.message);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.clearCache", async () => {
+            const result = await stateTracker?.sendClearCache();
+            if (result) {
+                vscode.window.showInformationMessage(result.message);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.editIncludePaths", () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openSettings",
+                "ivy.lsp.includePaths"
+            );
+        }),
+        vscode.commands.registerCommand("ivy.editExcludePaths", () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openSettings",
+                "ivy.lsp.excludePaths"
+            );
+        }),
+        vscode.commands.registerCommand("ivy.checkForUpdates", async () => {
+            const ok = await upgradeManagedIvyLsp();
+            if (ok) {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Upgrade complete. Restart server to apply."
+                );
+            } else {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Already up to date."
+                );
+            }
+        }),
+        vscode.commands.registerCommand("ivy.openDashboard", () => {
+            if (stateTracker) {
+                DashboardPanel.show(context, stateTracker);
+            }
         })
     );
 
@@ -216,6 +265,8 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
+    stateTracker?.dispose();
+    stateTracker = undefined;
     await stopClient();
 }
 
@@ -484,6 +535,19 @@ async function startWithPython(
             testScopeStatusBar.show();
             await refreshStatusBar(client, testScopeStatusBar);
         }
+
+        // Set up monitoring tree view.
+        stateTracker?.dispose();
+        stateTracker = new LspStateTracker(client);
+        treeProvider = new MonitorTreeProvider(stateTracker);
+        const treeView = vscode.window.createTreeView("ivyMonitor", {
+            treeDataProvider: treeProvider,
+            showCollapseAll: true,
+        });
+        treeView.onDidChangeVisibility((e) =>
+            stateTracker?.setVisible(e.visible)
+        );
+        context.subscriptions.push(treeView, stateTracker);
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
