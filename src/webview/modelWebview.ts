@@ -5,7 +5,8 @@
  * Receives data via window.addEventListener("message", ...).
  *
  * - Task 18: Cytoscape dependency graph + state machine tabs.
- * - Tasks 19-20 will add summary table and module layers rendering.
+ * - Task 19: summary table rendering.
+ * - Task 20: module layers rendering with file grouping.
  */
 
 import { createDependencyGraph, createStateMachineGraph } from "./graphRenderer";
@@ -138,6 +139,91 @@ function renderSummaryTable(data: {
 }
 
 // ---------------------------------------------------------------------------
+// Module layers rendering
+// ---------------------------------------------------------------------------
+
+function renderLayers(data: { actions: any[]; scopeInfo: any }): void {
+    const container = document.getElementById("layers-container");
+    if (!container) return;
+
+    // Group actions by file
+    const byFile = new Map<string, any[]>();
+    for (const action of data.actions) {
+        const file = action.file || "unknown";
+        if (!byFile.has(file)) {
+            byFile.set(file, []);
+        }
+        byFile.get(file)!.push(action);
+    }
+
+    container.innerHTML = "";
+
+    for (const [file, actions] of byFile) {
+        const section = document.createElement("details");
+        section.open = true;
+
+        const summary = document.createElement("summary");
+        const shortFile = file.split("/").slice(-2).join("/");
+        summary.textContent = `${shortFile} (${actions.length} actions)`;
+        summary.style.cursor = "pointer";
+        summary.style.padding = "4px 8px";
+        summary.style.fontWeight = "bold";
+        summary.style.borderBottom = "1px solid var(--vscode-panel-border)";
+        section.appendChild(summary);
+
+        const list = document.createElement("div");
+        list.style.padding = "4px 16px";
+
+        for (const action of actions) {
+            const item = document.createElement("div");
+            item.style.padding = "2px 0";
+            item.style.display = "flex";
+            item.style.justifyContent = "space-between";
+
+            const nameLink = document.createElement("a");
+            nameLink.href = "#";
+            nameLink.textContent = action.actionName;
+            nameLink.style.color = "var(--vscode-textLink-foreground)";
+            nameLink.addEventListener("click", (e) => {
+                e.preventDefault();
+                navigateToSource(action.actionName, action.file, action.line);
+            });
+
+            const badge = document.createElement("span");
+            const parts: string[] = [];
+            if (action.direction) {
+                parts.push(action.direction);
+            }
+            parts.push(`${action.counts.total} reqs`);
+            if (action.rfcTags.length > 0) {
+                parts.push(`${action.rfcTags.length} RFC`);
+            }
+            badge.textContent = parts.join(" | ");
+            badge.style.fontSize = "11px";
+            badge.style.opacity = "0.7";
+
+            item.appendChild(nameLink);
+            item.appendChild(badge);
+            list.appendChild(item);
+        }
+
+        section.appendChild(list);
+        container.appendChild(section);
+    }
+
+    // Scope info footer
+    if (data.scopeInfo && data.scopeInfo.scoped) {
+        const footer = document.createElement("div");
+        footer.style.padding = "8px";
+        footer.style.borderTop = "1px solid var(--vscode-panel-border)";
+        footer.style.fontSize = "11px";
+        footer.style.opacity = "0.7";
+        footer.textContent = `Scoped to: ${data.scopeInfo.testFile || "active test"}`;
+        container.appendChild(footer);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
 
@@ -180,7 +266,9 @@ window.addEventListener("message", (event) => {
             }
             break;
         case "updateActionRequirements":
-            // Task 20 will handle layers rendering.
+            if (msg.data) {
+                renderLayers(msg.data);
+            }
             break;
         case "ping":
             vscode.postMessage({ type: "pong" });
