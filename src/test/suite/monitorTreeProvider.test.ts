@@ -108,6 +108,51 @@ suite("MonitorTreeProvider", () => {
         );
     });
 
+    test("root sections include features", async () => {
+        const provider = new MonitorTreeProvider(makeTracker());
+        const children = await provider.getChildren(undefined);
+        const ids = children.map((c: MonitorItem) => c.sectionId);
+        assert.ok(ids.includes("features"), "Should have features section");
+    });
+
+    test("features section shows waiting when no data", async () => {
+        const provider = new MonitorTreeProvider(makeTracker());
+        const roots = await provider.getChildren(undefined);
+        const features = roots.find((r) => r.sectionId === "features");
+        assert.ok(features);
+        const children = await provider.getChildren(features);
+        assert.ok(children.length > 0);
+        assert.ok(
+            children[0].label?.toString().includes("Waiting"),
+            "Should show waiting message"
+        );
+    });
+
+    test("features section shows feature items when data available", async () => {
+        const tracker = makeTracker();
+        (tracker as any).featureStatus = {
+            features: [
+                { id: "codeLens", name: "Code Lens", status: "ready", reason: "OK" },
+                { id: "diagnostics", name: "Diagnostics", status: "degraded", reason: "Light" },
+            ],
+            analysisPipeline: {
+                tier1FileCount: 5, tier2FileCount: 3, tier3FileCount: 0,
+                tier3Running: false, semanticNodeCount: 42,
+                semanticEdgeCount: 10, semanticModelReady: true,
+            },
+        };
+        const provider = new MonitorTreeProvider(tracker);
+        const roots = await provider.getChildren(undefined);
+        const features = roots.find((r) => r.sectionId === "features");
+        assert.ok(features);
+        const children = await provider.getChildren(features);
+        // 2 features + 1 pipeline summary = 3
+        assert.ok(children.length >= 3, `Expected >= 3, got ${children.length}`);
+        const labels = children.map((c) => c.label?.toString() ?? "");
+        assert.ok(labels.some((l) => l.includes("Code Lens")));
+        assert.ok(labels.some((l) => l.includes("Pipeline")));
+    });
+
     test("recent section shows history entries", async () => {
         const provider = new MonitorTreeProvider(
             makeTracker({

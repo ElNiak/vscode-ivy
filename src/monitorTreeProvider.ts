@@ -44,6 +44,8 @@ export class MonitorTreeProvider
                 return this._getServerChildren();
             case "indexing":
                 return this._getIndexingChildren();
+            case "features":
+                return this._getFeaturesChildren();
             case "operations":
                 return this._getOperationsChildren();
             case "recent":
@@ -68,6 +70,11 @@ export class MonitorTreeProvider
                 "Indexing",
                 "indexing",
                 vscode.TreeItemCollapsibleState.Expanded
+            ),
+            new MonitorItem(
+                "Features",
+                "features",
+                vscode.TreeItemCollapsibleState.Collapsed
             ),
             new MonitorItem(
                 "Operations",
@@ -259,6 +266,51 @@ export class MonitorTreeProvider
         ];
     }
 
+    private _getFeaturesChildren(): MonitorItem[] {
+        const fs = this.tracker.featureStatus;
+        if (!fs) {
+            const item = new MonitorItem("Waiting for server...", "featureItem");
+            item.iconPath = new vscode.ThemeIcon("loading~spin");
+            return [item];
+        }
+
+        const items: MonitorItem[] = [];
+        for (const f of fs.features) {
+            const icon = featureStatusIcon(f.status);
+            const label = `${f.name}: ${capitalize(f.status)}`;
+            const item = new MonitorItem(label, "featureItem");
+            item.iconPath = new vscode.ThemeIcon(icon);
+            item.tooltip = f.reason;
+            if (f.dependsOn && f.dependsOn.length > 0) {
+                item.description = `depends on: ${f.dependsOn.join(", ")}`;
+            }
+            items.push(item);
+        }
+
+        // Pipeline summary item
+        const ps = fs.analysisPipeline;
+        const pipelineLabel = ps.tier3Running
+            ? "Pipeline: T3 running..."
+            : ps.semanticModelReady
+              ? `Pipeline: ${ps.semanticNodeCount} nodes`
+              : "Pipeline: No data";
+        const pipelineItem = new MonitorItem(pipelineLabel, "featureItem");
+        pipelineItem.iconPath = new vscode.ThemeIcon(
+            ps.tier3Running
+                ? "sync~spin"
+                : ps.semanticModelReady
+                  ? "database"
+                  : "circle-slash"
+        );
+        pipelineItem.tooltip =
+            `T1: ${ps.tier1FileCount} files | ` +
+            `T2: ${ps.tier2FileCount} files | ` +
+            `T3: ${ps.tier3FileCount} files`;
+        items.push(pipelineItem);
+
+        return items;
+    }
+
     private _getConfigurationChildren(): MonitorItem[] {
         const config = vscode.workspace.getConfiguration("ivy.lsp");
         const include =
@@ -307,4 +359,23 @@ function diagItem(label: string, count: number, icon: string): MonitorItem {
     const item = new MonitorItem(`${label}: ${count}`, "diagnosticItem");
     item.iconPath = new vscode.ThemeIcon(icon);
     return item;
+}
+
+function featureStatusIcon(status: string): string {
+    switch (status) {
+        case "ready":
+            return "pass";
+        case "degraded":
+            return "warning";
+        case "unavailable":
+            return "error";
+        case "loading":
+            return "sync~spin";
+        default:
+            return "question";
+    }
+}
+
+function capitalize(s: string): string {
+    return s.charAt(0).toUpperCase() + s.slice(1);
 }
