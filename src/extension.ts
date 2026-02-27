@@ -212,6 +212,19 @@ export async function activate(
         })
     );
 
+    // Set up monitoring tree view at activation time so the panel is
+    // available immediately, showing "Not connected" until the server is ready.
+    stateTracker = new LspStateTracker(null);
+    treeProvider = new MonitorTreeProvider(stateTracker);
+    const treeView = vscode.window.createTreeView("ivyMonitor", {
+        treeDataProvider: treeProvider,
+        showCollapseAll: true,
+    });
+    treeView.onDidChangeVisibility((e) =>
+        stateTracker?.setVisible(e.visible)
+    );
+    context.subscriptions.push(treeView, stateTracker);
+
     const config = vscode.workspace.getConfiguration("ivy");
     const lspEnabled = config.get<boolean>("lsp.enabled", true);
 
@@ -555,18 +568,8 @@ async function startWithPython(
             await refreshStatusBar(client, testScopeStatusBar);
         }
 
-        // Set up monitoring tree view.
-        stateTracker?.dispose();
-        stateTracker = new LspStateTracker(client);
-        treeProvider = new MonitorTreeProvider(stateTracker);
-        const treeView = vscode.window.createTreeView("ivyMonitor", {
-            treeDataProvider: treeProvider,
-            showCollapseAll: true,
-        });
-        treeView.onDidChangeVisibility((e) =>
-            stateTracker?.setVisible(e.visible)
-        );
-        context.subscriptions.push(treeView, stateTracker);
+        // Point the existing tracker at the new client.
+        stateTracker?.setClient(client);
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
@@ -586,6 +589,7 @@ async function stopClient(): Promise<void> {
         }
         client = undefined;
     }
+    stateTracker?.setClient(null);
     if (testScopeStatusBar) {
         updateStatusBar(testScopeStatusBar, null);
     }

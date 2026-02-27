@@ -29,7 +29,22 @@ export class LspStateTracker implements vscode.Disposable {
     private _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
-    constructor(private readonly client: LanguageClient | null) {}
+    constructor(private client: LanguageClient | null) {}
+
+    /** Update the underlying client (e.g. after restart). Resets cached state. */
+    setClient(newClient: LanguageClient | null): void {
+        this._stopPolling();
+        this.client = newClient;
+        this.serverStatus = null;
+        this.indexerStats = null;
+        this.operationHistory = null;
+        this._prevIndexingState = null;
+        this._prevStaleCount = 0;
+        this._onDidChange.fire();
+        if (this._visible && newClient) {
+            this._startPolling();
+        }
+    }
 
     get isPolling(): boolean {
         return this._statusTimer !== null;
