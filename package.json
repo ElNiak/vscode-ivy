@@ -1,7 +1,7 @@
 {
   "name": "ivy-language",
   "displayName": "Ivy Language",
-  "description": "Language support for Ivy formal specification files (.ivy) \u2014 syntax highlighting, LSP client, snippets",
+  "description": "Language support for Ivy formal specification files (.ivy) — syntax highlighting, LSP client, snippets",
   "version": "0.9.0",
   "publisher": "panther-ivy",
   "license": "MIT",
@@ -56,6 +56,11 @@
         {
           "id": "ivyMonitor",
           "name": "Monitor",
+          "type": "tree"
+        },
+        {
+          "id": "ivyRequirements",
+          "name": "Requirements",
           "type": "tree"
         }
       ]
@@ -146,6 +151,21 @@
         "command": "ivy.toggleDebugLog",
         "title": "Ivy: Toggle Debug Logging",
         "icon": "$(bug)"
+      },
+      {
+        "command": "ivy.openModelVisualization",
+        "title": "Ivy: Open Model Visualization",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "ivy.showActionRequirements",
+        "title": "Ivy: Show Action Requirements",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "ivy.refreshRequirements",
+        "title": "Ivy: Refresh Requirements",
+        "icon": "$(refresh)"
       }
     ],
     "submenus": [
@@ -178,6 +198,16 @@
         {
           "command": "ivy.openDashboard",
           "when": "view == ivyMonitor",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.refreshRequirements",
+          "when": "view == ivyRequirements",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.openModelVisualization",
+          "when": "view == ivyRequirements",
           "group": "navigation"
         }
       ],
@@ -416,8 +446,9 @@
   "scripts": {
     "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
-    "bundle": "node esbuild.js --production",
-    "bundle:dev": "node esbuild.js",
+    "bundle": "node esbuild.js --production && node esbuild.webview.js --production",
+    "bundle:dev": "node esbuild.js && node esbuild.webview.js",
+    "bundle:webview": "node esbuild.webview.js",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "pretest": "npm run compile",
@@ -425,9 +456,11 @@
     "test:unit": "npx mocha out/test/unit/**/*.test.js"
   },
   "dependencies": {
+    "cytoscape": "^3.33.1",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.75.0",
@@ -435,9 +468,9 @@
     "@typescript-eslint/parser": "^7.0.0",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.24.0",
     "eslint": "^8.56.0",
     "mocha": "^10.3.0",
-    "esbuild": "^0.24.0",
     "typescript": "^5.3.3",
     "vscode-tmgrammar-test": "^0.1.3"
   }
