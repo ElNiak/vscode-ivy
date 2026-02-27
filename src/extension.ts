@@ -38,12 +38,14 @@ import { isOlderVersion } from "./version";
 import { LspStateTracker } from "./lspStateTracker";
 import { MonitorTreeProvider } from "./monitorTreeProvider";
 import { DashboardPanel } from "./dashboardPanel";
+import { ModelDataProvider } from "./modelDataProvider";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
 let testScopeStatusBar: vscode.StatusBarItem;
 let stateTracker: LspStateTracker | undefined;
 let treeProvider: MonitorTreeProvider | undefined;
+let modelDataProvider: ModelDataProvider | undefined;
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -225,6 +227,10 @@ export async function activate(
     );
     context.subscriptions.push(treeView, stateTracker);
 
+    // Set up model data provider for visualization features.
+    modelDataProvider = new ModelDataProvider(null);
+    context.subscriptions.push(modelDataProvider);
+
     const config = vscode.workspace.getConfiguration("ivy");
     const lspEnabled = config.get<boolean>("lsp.enabled", true);
 
@@ -307,6 +313,8 @@ export async function activate(
 export async function deactivate(): Promise<void> {
     stateTracker?.dispose();
     stateTracker = undefined;
+    modelDataProvider?.dispose();
+    modelDataProvider = undefined;
     await stopClient();
 }
 
@@ -583,6 +591,7 @@ async function startWithPython(
 
         // Point the existing tracker at the new client.
         stateTracker?.setClient(client);
+        modelDataProvider?.setClient(client);
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
@@ -603,6 +612,7 @@ async function stopClient(): Promise<void> {
         client = undefined;
     }
     stateTracker?.setClient(null);
+    modelDataProvider?.setClient(null);
     if (testScopeStatusBar) {
         updateStatusBar(testScopeStatusBar, null);
     }
