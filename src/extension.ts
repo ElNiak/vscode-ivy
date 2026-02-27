@@ -44,6 +44,7 @@ import {
     applyRequirementDecorations,
     clearRequirementDecorations,
 } from "./requirements/requirementDecorations";
+import { ModelVisualizationPanel } from "./visualization/modelVisualizationPanel";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -240,10 +241,9 @@ export async function activate(
             },
         ),
         vscode.commands.registerCommand("ivy.openModelVisualization", () => {
-            // Placeholder: Phase 6 (Task 17) will open the webview panel.
-            vscode.window.showInformationMessage(
-                "Ivy: Model Visualization panel coming soon.",
-            );
+            if (modelDataProvider) {
+                ModelVisualizationPanel.show(context, modelDataProvider);
+            }
         }),
     );
 
