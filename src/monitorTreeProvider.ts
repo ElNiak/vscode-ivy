@@ -327,6 +327,19 @@ export class MonitorTreeProvider
             `T3: ${ps.tier3FileCount} files`;
         items.push(pipelineItem);
 
+        // Bulk analysis indicator
+        if (ps.bulkAnalysisRunning) {
+            const pct = ps.bulkAnalysisTotal > 0
+                ? Math.round((ps.bulkAnalysisCompleted / ps.bulkAnalysisTotal) * 100)
+                : 0;
+            const bulkItem = new MonitorItem(
+                `Bulk Analysis: ${ps.bulkAnalysisCompleted}/${ps.bulkAnalysisTotal} (${pct}%)`,
+                "featureItem"
+            );
+            bulkItem.iconPath = new vscode.ThemeIcon("sync~spin");
+            items.push(bulkItem);
+        }
+
         return items;
     }
 

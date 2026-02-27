@@ -259,6 +259,12 @@ export class DashboardPanel {
       <div class="stat"><div class="value">${ps?.tier3Running ? '&#x21BB; ' + (ps?.tier3FileCount ?? 0) : (ps?.tier3FileCount ?? 0)}</div><div class="label">T3 Files${ps?.tier3Running ? ' (running)' : ''}</div></div>
       <div class="stat"><div class="value">${ps?.semanticNodeCount ?? 0}</div><div class="label">Sem. Nodes</div></div>
     </div>
+    ${ps?.bulkAnalysisRunning ? `
+    <p style="margin-top:8px">Background Analysis: ${ps.bulkAnalysisCompleted}/${ps.bulkAnalysisTotal} files</p>
+    <div style="background:var(--vscode-editorWidget-border);border-radius:4px;height:8px;margin:4px 0">
+      <div style="background:#2196f3;height:100%;width:${Math.round((ps.bulkAnalysisCompleted/Math.max(ps.bulkAnalysisTotal,1))*100)}%;border-radius:4px;transition:width 0.3s"></div>
+    </div>
+    ` : ''}
   </div>
 
   <div class="card">

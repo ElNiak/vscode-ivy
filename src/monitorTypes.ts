@@ -76,6 +76,9 @@ export interface AnalysisPipelineState {
     semanticNodeCount: number;
     semanticEdgeCount: number;
     semanticModelReady: boolean;
+    bulkAnalysisRunning: boolean;
+    bulkAnalysisTotal: number;
+    bulkAnalysisCompleted: number;
 }
 
 export interface FeatureStatus {
