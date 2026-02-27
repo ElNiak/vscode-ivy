@@ -32,4 +32,16 @@ suite("LspStateTracker", () => {
         const result = await tracker.sendClearCache();
         assert.strictEqual(result, null);
     });
+
+    test("initial featureStatus is null", () => {
+        const tracker = new LspStateTracker(null as any);
+        assert.strictEqual(tracker.featureStatus, null);
+    });
+
+    test("setClient resets featureStatus to null", () => {
+        const tracker = new LspStateTracker(null as any);
+        (tracker as any).featureStatus = { features: [], analysisPipeline: {} };
+        tracker.setClient(null);
+        assert.strictEqual(tracker.featureStatus, null);
+    });
 });
