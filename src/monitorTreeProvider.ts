@@ -50,6 +50,10 @@ export class MonitorTreeProvider
                 return this._getOperationsChildren();
             case "recent":
                 return this._getRecentChildren();
+            case "deepIndex":
+                return this._getDeepIndexChildren();
+            case "testFeatures":
+                return this._getTestFeaturesChildren();
             case "diagnostics":
                 return this._getDiagnosticsChildren();
             case "configuration":
@@ -74,6 +78,16 @@ export class MonitorTreeProvider
             new MonitorItem(
                 "Features",
                 "features",
+                vscode.TreeItemCollapsibleState.Collapsed
+            ),
+            new MonitorItem(
+                "Deep Index",
+                "deepIndex",
+                vscode.TreeItemCollapsibleState.Expanded
+            ),
+            new MonitorItem(
+                "Test Features",
+                "testFeatures",
                 vscode.TreeItemCollapsibleState.Collapsed
             ),
             new MonitorItem(
@@ -169,7 +183,7 @@ export class MonitorTreeProvider
         const items = [status];
         if (stats) {
             const files = new MonitorItem(
-                `Files: ${stats.fileCount}`,
+                `Files: ${stats.fileCount.toLocaleString()}`,
                 "indexingItem"
             );
             files.iconPath = new vscode.ThemeIcon("files");
@@ -217,7 +231,7 @@ export class MonitorTreeProvider
             return [idle];
         }
         return ops.map((op) => {
-            const label = `${op.type}${op.file ? " " + basename(op.file) : ""} ${op.elapsed.toFixed(0)}s`;
+            const label = `${op.type}${op.file ? " " + basename(op.file) : ""} ${op.elapsed.toFixed(1)}s`;
             const item = new MonitorItem(label, "activeOperation");
             item.iconPath = new vscode.ThemeIcon("sync~spin");
             return item;
@@ -309,6 +323,95 @@ export class MonitorTreeProvider
         items.push(pipelineItem);
 
         return items;
+    }
+
+    private _getDeepIndexChildren(): MonitorItem[] {
+        const p = this.tracker.deepIndexProgress;
+        if (!p) {
+            return [new MonitorItem("Waiting for server...", "deepIndexItem")];
+        }
+        if (!p.running && p.totalTests === 0) {
+            const item = new MonitorItem(
+                "Not started (light mode?)",
+                "deepIndexItem"
+            );
+            item.iconPath = new vscode.ThemeIcon("circle-outline");
+            return [item];
+        }
+        const items: MonitorItem[] = [];
+
+        // Progress summary
+        const pct =
+            p.totalTests > 0
+                ? Math.round((p.completedTests / p.totalTests) * 100)
+                : 0;
+        const label = p.running
+            ? `Progress: ${p.completedTests}/${p.totalTests} (${pct}%)`
+            : `Complete: ${p.completedTests}/${p.totalTests}`;
+        const summary = new MonitorItem(label, "deepIndexItem");
+        summary.iconPath = new vscode.ThemeIcon(
+            p.running ? "sync~spin" : "pass"
+        );
+        items.push(summary);
+
+        // Current file
+        if (p.running && p.currentFile) {
+            const cur = new MonitorItem(
+                `Parsing: ${basename(p.currentFile)}`,
+                "deepIndexItem"
+            );
+            cur.iconPath = new vscode.ThemeIcon("file-code");
+            items.push(cur);
+        }
+
+        // Per-file statuses
+        for (const fs of p.fileStatuses) {
+            const icon = fs.deepParseSucceeded
+                ? "pass"
+                : fs.deepParseAttempted
+                  ? "error"
+                  : fs.shallowIndexed
+                    ? "circle-outline"
+                    : "question";
+            const status = fs.deepParseSucceeded
+                ? "deep"
+                : fs.deepParseAttempted
+                  ? "failed"
+                  : "shallow";
+            const item = new MonitorItem(
+                `${basename(fs.file)} [${status}]`,
+                "deepIndexFileItem"
+            );
+            item.iconPath = new vscode.ThemeIcon(icon);
+            if (fs.parseError) {
+                item.tooltip = fs.parseError;
+            }
+            items.push(item);
+        }
+        return items;
+    }
+
+    private _getTestFeaturesChildren(): MonitorItem[] {
+        const m = this.tracker.testFeatureMatrix;
+        if (!m || m.tests.length === 0) {
+            return [new MonitorItem("No test data", "testFeatureItem")];
+        }
+        return m.tests.map((t) => {
+            const readyCount = Object.values(t.features).filter(
+                (s) => s === "ready"
+            ).length;
+            const total = Object.keys(t.features).length;
+            const item = new MonitorItem(
+                `${basename(t.file)} (${readyCount}/${total} ready)`,
+                "testFeatureItem"
+            );
+            item.iconPath = new vscode.ThemeIcon(
+                readyCount === total ? "pass" : "warning"
+            );
+            item.collapsibleState =
+                vscode.TreeItemCollapsibleState.Collapsed;
+            return item;
+        });
     }
 
     private _getConfigurationChildren(): MonitorItem[] {
