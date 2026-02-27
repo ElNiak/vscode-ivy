@@ -52,10 +52,11 @@ export class LspStateTracker implements vscode.Disposable {
         }
         try {
             const [status, stats, history] = await Promise.all([
-                this.client.sendRequest<ServerStatus>("ivy/serverStatus"),
-                this.client.sendRequest<IndexerStats>("ivy/indexerStats"),
+                this.client.sendRequest<ServerStatus>("ivy/serverStatus", null),
+                this.client.sendRequest<IndexerStats>("ivy/indexerStats", null),
                 this.client.sendRequest<OperationHistory>(
-                    "ivy/operationHistory"
+                    "ivy/operationHistory",
+                    null
                 ),
             ]);
             this.serverStatus = status;
@@ -73,14 +74,14 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client) {
             return null;
         }
-        return this.client.sendRequest<ActionResult>("ivy/reindex");
+        return this.client.sendRequest<ActionResult>("ivy/reindex", null);
     }
 
     async sendClearCache(): Promise<ActionResult | null> {
         if (!this.client) {
             return null;
         }
-        return this.client.sendRequest<ActionResult>("ivy/clearCache");
+        return this.client.sendRequest<ActionResult>("ivy/clearCache", null);
     }
 
     private _startPolling(): void {
@@ -114,7 +115,7 @@ export class LspStateTracker implements vscode.Disposable {
         }
         try {
             this.serverStatus =
-                await this.client.sendRequest<ServerStatus>("ivy/serverStatus");
+                await this.client.sendRequest<ServerStatus>("ivy/serverStatus", null);
             this._checkForStateChanges();
             this._onDidChange.fire();
         } catch {
@@ -128,7 +129,7 @@ export class LspStateTracker implements vscode.Disposable {
         }
         try {
             this.indexerStats =
-                await this.client.sendRequest<IndexerStats>("ivy/indexerStats");
+                await this.client.sendRequest<IndexerStats>("ivy/indexerStats", null);
             this._onDidChange.fire();
         } catch {
             /* server not ready */
@@ -142,7 +143,8 @@ export class LspStateTracker implements vscode.Disposable {
         try {
             this.operationHistory =
                 await this.client.sendRequest<OperationHistory>(
-                    "ivy/operationHistory"
+                    "ivy/operationHistory",
+                    null
                 );
             this._onDidChange.fire();
         } catch {
