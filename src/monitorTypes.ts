@@ -82,3 +82,29 @@ export interface FeatureStatus {
     features: FeatureInfo[];
     analysisPipeline: AnalysisPipelineState;
 }
+
+export interface FileIndexStatus {
+    file: string;
+    shallowIndexed: boolean;
+    deepParseAttempted: boolean;
+    deepParseSucceeded: boolean;
+    parseError: string | null;
+}
+
+export interface DeepIndexProgress {
+    running: boolean;
+    totalTests: number;
+    completedTests: number;
+    currentFile: string | null;
+    startedAt: string | null;
+    fileStatuses: FileIndexStatus[];
+}
+
+export interface TestFeatureEntry {
+    file: string;
+    features: Record<string, "ready" | "degraded" | "unavailable">;
+}
+
+export interface TestFeatureMatrix {
+    tests: TestFeatureEntry[];
+}

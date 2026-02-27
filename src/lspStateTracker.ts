@@ -8,6 +8,8 @@ import {
     OperationHistory,
     ActionResult,
     FeatureStatus,
+    DeepIndexProgress,
+    TestFeatureMatrix,
 } from "./monitorTypes";
 
 /** Timeout (ms) for individual poll requests. */
@@ -19,6 +21,7 @@ export class LspStateTracker implements vscode.Disposable {
     private _statsTimer: ReturnType<typeof setInterval> | null = null;
     private _historyTimer: ReturnType<typeof setInterval> | null = null;
     private _featureTimer: ReturnType<typeof setInterval> | null = null;
+    private _progressTimer: ReturnType<typeof setInterval> | null = null;
     private _visible = false;
 
     /** Cached state from most recent poll. */
@@ -26,10 +29,13 @@ export class LspStateTracker implements vscode.Disposable {
     public indexerStats: IndexerStats | null = null;
     public operationHistory: OperationHistory | null = null;
     public featureStatus: FeatureStatus | null = null;
+    public deepIndexProgress: DeepIndexProgress | null = null;
+    public testFeatureMatrix: TestFeatureMatrix | null = null;
 
     /** State-change detection for toast notifications. */
     private _prevIndexingState: string | null = null;
     private _prevStaleCount = 0;
+    private _prevDeepIndexRunning = false;
 
     /** Exponential backoff: number of consecutive failures (0 = healthy). */
     private _backoff = 0;
@@ -50,8 +56,11 @@ export class LspStateTracker implements vscode.Disposable {
         this.indexerStats = null;
         this.operationHistory = null;
         this.featureStatus = null;
+        this.deepIndexProgress = null;
+        this.testFeatureMatrix = null;
         this._prevIndexingState = null;
         this._prevStaleCount = 0;
+        this._prevDeepIndexRunning = false;
         this._backoff = 0;
         this._skipCount = 0;
         this._onDidChange.fire();
@@ -128,6 +137,7 @@ export class LspStateTracker implements vscode.Disposable {
         this._statsTimer = setInterval(() => this._pollStats(), 10000);
         this._historyTimer = setInterval(() => this._pollHistory(), 5000);
         this._featureTimer = setInterval(() => this._pollFeatures(), 5000);
+        this._progressTimer = setInterval(() => this._pollProgress(), 2000);
     }
 
     private _stopPolling(): void {
@@ -143,10 +153,14 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._featureTimer) {
             clearInterval(this._featureTimer);
         }
+        if (this._progressTimer) {
+            clearInterval(this._progressTimer);
+        }
         this._statusTimer = null;
         this._statsTimer = null;
         this._historyTimer = null;
         this._featureTimer = null;
+        this._progressTimer = null;
     }
 
     /** Send a request with a timeout to prevent indefinite hangs. */
@@ -305,6 +319,46 @@ export class LspStateTracker implements vscode.Disposable {
 
         this._prevStaleCount = staleCount;
         this._prevIndexingState = newState;
+    }
+
+    private async _pollProgress(): Promise<void> {
+        if (!this.client || this.client.state !== 2) {
+            return;
+        }
+        if (this._shouldSkip()) {
+            return;
+        }
+        try {
+            const [progress, matrix] = await Promise.all([
+                this._sendWithTimeout<DeepIndexProgress>(
+                    "ivy/deepIndexProgress"
+                ),
+                this._sendWithTimeout<TestFeatureMatrix>(
+                    "ivy/testFeatureMatrix"
+                ),
+            ]);
+            this.deepIndexProgress = progress;
+            this.testFeatureMatrix = matrix;
+            this._onPollSuccess();
+            this._checkForDeepIndexChanges();
+            this._onDidChange.fire();
+        } catch {
+            this._onPollFailure();
+        }
+    }
+
+    private _checkForDeepIndexChanges(): void {
+        if (!this.deepIndexProgress) {
+            return;
+        }
+        const running = this.deepIndexProgress.running;
+        if (this._prevDeepIndexRunning && !running) {
+            const { completedTests, totalTests } = this.deepIndexProgress;
+            vscode.window.showInformationMessage(
+                `Ivy: Deep indexing complete (${completedTests}/${totalTests} test files)`
+            );
+        }
+        this._prevDeepIndexRunning = running;
     }
 
     dispose(): void {
