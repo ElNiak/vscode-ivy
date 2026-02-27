@@ -39,6 +39,11 @@ import { LspStateTracker } from "./lspStateTracker";
 import { MonitorTreeProvider } from "./monitorTreeProvider";
 import { DashboardPanel } from "./dashboardPanel";
 import { ModelDataProvider } from "./modelDataProvider";
+import { RequirementTreeProvider } from "./requirements/requirementTreeProvider";
+import {
+    applyRequirementDecorations,
+    clearRequirementDecorations,
+} from "./requirements/requirementDecorations";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -46,6 +51,7 @@ let testScopeStatusBar: vscode.StatusBarItem;
 let stateTracker: LspStateTracker | undefined;
 let treeProvider: MonitorTreeProvider | undefined;
 let modelDataProvider: ModelDataProvider | undefined;
+let reqTreeProvider: RequirementTreeProvider | undefined;
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -211,7 +217,34 @@ export async function activate(
             vscode.window.showInformationMessage(
                 `Ivy LSP: Log level set to ${next}. Server restarting...`
             );
-        })
+        }),
+        vscode.commands.registerCommand("ivy.refreshRequirements", () =>
+            modelDataProvider?.refreshNow(),
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showActionRequirements",
+            async (actionName?: string) => {
+                // Focus the requirements tree view sidebar panel.
+                await vscode.commands.executeCommand("ivyRequirements.focus");
+                // Refresh data so decorations use the latest model state.
+                await modelDataProvider?.refreshNow();
+                // Apply gutter decorations to the active editor.
+                const editor = vscode.window.activeTextEditor;
+                if (editor && modelDataProvider) {
+                    applyRequirementDecorations(
+                        editor,
+                        modelDataProvider,
+                        actionName,
+                    );
+                }
+            },
+        ),
+        vscode.commands.registerCommand("ivy.openModelVisualization", () => {
+            // Placeholder: Phase 6 (Task 17) will open the webview panel.
+            vscode.window.showInformationMessage(
+                "Ivy: Model Visualization panel coming soon.",
+            );
+        }),
     );
 
     // Set up monitoring tree view at activation time so the panel is
@@ -230,6 +263,41 @@ export async function activate(
     // Set up model data provider for visualization features.
     modelDataProvider = new ModelDataProvider(null);
     context.subscriptions.push(modelDataProvider);
+
+    // Set up requirements tree view.
+    reqTreeProvider = new RequirementTreeProvider(modelDataProvider);
+    const reqTreeView = vscode.window.createTreeView("ivyRequirements", {
+        treeDataProvider: reqTreeProvider,
+        showCollapseAll: true,
+    });
+    reqTreeView.onDidChangeVisibility((e) =>
+        modelDataProvider?.setVisible(e.visible),
+    );
+    context.subscriptions.push(reqTreeView, reqTreeProvider);
+
+    // Refresh requirement decorations whenever model data changes.
+    context.subscriptions.push(
+        modelDataProvider.onDidChange(() => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document.languageId === "ivy" && modelDataProvider) {
+                applyRequirementDecorations(editor, modelDataProvider);
+            }
+        }),
+    );
+
+    // When the active editor changes, apply or clear decorations.
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor((editor) => {
+            if (!editor || !modelDataProvider) {
+                return;
+            }
+            if (editor.document.languageId === "ivy") {
+                applyRequirementDecorations(editor, modelDataProvider);
+            } else {
+                clearRequirementDecorations(editor);
+            }
+        }),
+    );
 
     const config = vscode.workspace.getConfiguration("ivy");
     const lspEnabled = config.get<boolean>("lsp.enabled", true);
@@ -313,6 +381,8 @@ export async function activate(
 export async function deactivate(): Promise<void> {
     stateTracker?.dispose();
     stateTracker = undefined;
+    reqTreeProvider?.dispose();
+    reqTreeProvider = undefined;
     modelDataProvider?.dispose();
     modelDataProvider = undefined;
     await stopClient();
@@ -592,6 +662,7 @@ async function startWithPython(
         // Point the existing tracker at the new client.
         stateTracker?.setClient(client);
         modelDataProvider?.setClient(client);
+        modelDataProvider?.setVisible(true);
     } catch (err) {
         const message =
             err instanceof Error ? err.message : String(err);
