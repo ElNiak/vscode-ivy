@@ -54,8 +54,11 @@ export class RequirementTreeProvider
 
     private _getRootItems(): ReqTreeItem[] {
         const data = this.provider.actionRequirements;
-        if (!data || !data.modelReady) {
-            return [new MessageItem("Model not ready")];
+        if (!data) {
+            return [new MessageItem("Waiting for server...")];
+        }
+        if (!data.modelReady) {
+            return [new MessageItem("Indexing workspace...")];
         }
         if (data.actions.length === 0) {
             return [new MessageItem("No actions found")];
