@@ -57,9 +57,28 @@ Code templates for common Ivy patterns:
 | `Ivy: Verify` | `Cmd+Shift+F5` (`Ctrl+Shift+F5`) | Run `ivy_check` on the current file or isolate under cursor. |
 | `Ivy: Compile` | `Cmd+Shift+F6` (`Ctrl+Shift+F6`) | Compile the current Ivy file with `ivyc`. |
 | `Ivy: Show Model` | `Cmd+Shift+F7` (`Ctrl+Shift+F7`) | Display model structure via `ivy_show`. |
+| `Ivy: Set Active Test` | `Cmd+Shift+F8` (`Ctrl+Shift+F8`) | Set the active test scope for scoped analysis. |
 | `Ivy: Cancel Running Operation` | — | Cancel an in-progress verify/compile/show. |
+| `Ivy: Open Dashboard` | — | Open the monitoring webview dashboard. |
+| `Ivy: Re-index Workspace` | — | Trigger a full workspace re-index. |
+| `Ivy: Clear Cache` | — | Clear staging cache and re-index. |
+| `Ivy: Check for LSP Updates` | — | Check for and install LSP server updates. |
+| `Ivy: Refresh Monitor` | — | Refresh the monitoring tree view. |
 
 All commands are also available via right-click context menu on `.ivy` files (editor and explorer).
+
+### Monitoring Panel
+
+The Activity Bar sidebar shows a live monitoring tree view with:
+
+- **Server**: Mode (Full/Light), version, uptime, available tools
+- **Indexing**: Status, file/symbol/include counts, stale file detection
+- **Operations**: Currently running operations with elapsed time
+- **Recent**: Last 5 completed operations with pass/fail status
+- **Diagnostics**: Error/warning/hint counts across `.ivy` files
+- **Configuration**: Current include/exclude path settings
+
+Use the **Dashboard** (command palette: `Ivy: Open Dashboard`) for a richer webview with statistics grid and operation history table.
 
 ### Language Configuration
 
@@ -155,17 +174,113 @@ The extension auto-restarts the server up to `ivy.lsp.maxRestartCount` times (de
 
 The extension degrades gracefully. You still get syntax highlighting, snippets, and language configuration without the LSP server.
 
-## Contributing
+## Development
 
-See [CONTRIBUTING.md](https://github.com/ElNiak/vscode-ivy/blob/main/CONTRIBUTING.md) or clone the repo and press F5 to launch the Extension Development Host.
+### Setup
 
 ```bash
 git clone https://github.com/ElNiak/vscode-ivy.git
 cd vscode-ivy
 npm install
 npm run compile
-# Press F5 in VS Code to launch
 ```
+
+### Running in Dev Mode
+
+There are three ways to test the extension during development:
+
+#### Option 1: F5 in VS Code (Recommended)
+
+Open the `vscode-ivy/` folder in VS Code and press **F5**. This launches the Extension Development Host with the extension loaded. The `.vscode/launch.json` provides three configurations:
+
+- **Launch Extension** — opens an empty window with the extension
+- **Launch Extension (with workspace)** — prompts for a folder containing `.ivy` files
+- **Extension Tests** — runs the integration test suite inside VS Code
+
+#### Option 2: CLI Launch
+
+Use the `code` CLI directly:
+
+```bash
+# Compile and launch Extension Development Host
+npm run compile
+code --extensionDevelopmentPath="$(pwd)" --disable-extensions
+
+# Open a specific workspace with the extension loaded
+code --extensionDevelopmentPath="$(pwd)" --disable-extensions /path/to/ivy/workspace
+```
+
+#### Option 3: Convenience Script (Recommended for PANTHER devs)
+
+A helper script wraps all common dev operations:
+
+```bash
+./scripts/dev-launch.sh                    # Compile + launch Extension Dev Host
+./scripts/dev-launch.sh /path/to/workspace # Launch with a specific folder
+./scripts/dev-launch.sh --package          # Build .vsix and install into VS Code
+./scripts/dev-launch.sh --test             # Run all tests (unit + integration)
+./scripts/dev-launch.sh --help             # Show usage
+```
+
+**Testing with the PANTHER Ivy models:**
+
+The most common scenario is launching the extension against the `panther_ivy` directory, which contains the QUIC/BGP/CoAP formal models:
+
+```bash
+# From the vscode-ivy directory, point to your local panther_ivy checkout:
+./scripts/dev-launch.sh <PANTHER_ROOT>/panther/plugins/services/testers/panther_ivy
+```
+
+This compiles the extension, then opens a VS Code Extension Development Host window with `panther_ivy/` as the workspace. The LSP server will index `.ivy` files under `protocol-testing/` (QUIC, BGP, CoAP, etc.). You can then:
+
+1. Open any `.ivy` file (e.g. `protocol-testing/quic/quic_stack/quic_connection.ivy`)
+2. Check the **Ivy LSP** sidebar for server status and indexing progress
+3. Run **Ivy: Verify** (`Cmd+Shift+F5`) to test the monitoring panel
+4. Open the **Ivy: Open Dashboard** from the command palette
+
+> **Tip:** Configure `ivy.lsp.includePaths` in the workspace settings to limit indexing to a specific protocol (e.g. `["protocol-testing/quic"]`) for faster startup.
+
+#### Option 4: Package as .vsix
+
+Build a `.vsix` file and install it into your regular VS Code instance. This is useful for testing the extension as end users would see it:
+
+```bash
+npx vsce package --no-dependencies -o ivy-language-dev.vsix
+code --install-extension ivy-language-dev.vsix --force
+# Restart VS Code to activate
+```
+
+### Running Tests
+
+```bash
+# Unit tests (fast, no VS Code dependency)
+npm run test:unit
+
+# Integration tests (launches VS Code via @vscode/test-electron)
+npm test
+
+# All tests via the convenience script
+./scripts/dev-launch.sh --test
+```
+
+### Manual Testing Checklist
+
+After launching in dev mode, verify:
+
+1. Ivy LSP icon appears in the Activity Bar sidebar
+2. Tree view shows: Server, Indexing, Operations, Recent, Diagnostics, Configuration
+3. Server section displays mode, version, uptime, and available tools
+4. Opening a `.ivy` file triggers indexing (status changes to "Complete")
+5. `Ivy: Verify` (Cmd/Ctrl+Shift+F5) appears in Operations, then moves to Recent
+6. `Ivy: Open Dashboard` opens a webview tab with statistics
+7. `Ivy: Re-index Workspace` refreshes the tree view
+8. `Ivy: Clear Cache` triggers a re-index
+9. Killing the server process shows "Not connected" in the tree view
+10. Restarting recovers automatically
+
+## Contributing
+
+See [CONTRIBUTING.md](https://github.com/ElNiak/vscode-ivy/blob/main/CONTRIBUTING.md).
 
 ## License
 
