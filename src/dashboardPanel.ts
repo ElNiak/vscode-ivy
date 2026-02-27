@@ -122,6 +122,37 @@ export class DashboardPanel {
 
         const ps = featureStatus?.analysisPipeline;
 
+        const testMatrix = this.tracker.testFeatureMatrix;
+        const testMatrixRows = (testMatrix?.tests ?? [])
+            .map((t) => {
+                const file = escapeHtml(t.file.split("/").pop() ?? "");
+                const cells = Object.entries(t.features)
+                    .map(([, status]) => {
+                        const color =
+                            status === "ready"
+                                ? "#4caf50"
+                                : status === "degraded"
+                                  ? "#ff9800"
+                                  : "#f44336";
+                        const icon =
+                            status === "ready"
+                                ? "&#x2713;"
+                                : status === "degraded"
+                                  ? "&#x26A0;"
+                                  : "&#x2717;";
+                        return `<td style="color:${color};text-align:center">${icon}</td>`;
+                    })
+                    .join("");
+                return `<tr><td>${file}</td>${cells}</tr>`;
+            })
+            .join("");
+        const testFeatureHeaders =
+            testMatrix && testMatrix.tests.length > 0
+                ? Object.keys(testMatrix.tests[0].features)
+                      .map((k) => `<th>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}</th>`)
+                      .join("")
+                : "";
+
         const deepProg = this.tracker.deepIndexProgress;
         const deepPct =
             deepProg && deepProg.totalTests > 0
@@ -204,6 +235,14 @@ export class DashboardPanel {
     <table>
       <tr><th></th><th>File</th><th>Depth</th><th>Error</th></tr>
       ${fileStatusRows || '<tr><td colspan="4">No data</td></tr>'}
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Test Features</h2>
+    <table>
+      <tr><th>File</th>${testFeatureHeaders}</tr>
+      ${testMatrixRows || '<tr><td colspan="7">No test data</td></tr>'}
     </table>
   </div>
 

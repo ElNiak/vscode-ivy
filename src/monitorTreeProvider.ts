@@ -5,6 +5,9 @@ import { LspStateTracker } from "./lspStateTracker";
 
 /** A tree item with a section identifier for child resolution. */
 export class MonitorItem extends vscode.TreeItem {
+    /** Optional payload for child resolution (e.g. file path for test features). */
+    public data?: string;
+
     constructor(
         label: string,
         public readonly sectionId: string,
@@ -56,6 +59,8 @@ export class MonitorTreeProvider
                 return this._getTestFeaturesChildren();
             case "diagnostics":
                 return this._getDiagnosticsChildren();
+            case "testFeatureItem":
+                return this._getTestFeatureDetailChildren(element);
             case "configuration":
                 return this._getConfigurationChildren();
             default:
@@ -410,6 +415,27 @@ export class MonitorTreeProvider
             );
             item.collapsibleState =
                 vscode.TreeItemCollapsibleState.Collapsed;
+            item.data = t.file;
+            return item;
+        });
+    }
+
+    private _getTestFeatureDetailChildren(element: MonitorItem): MonitorItem[] {
+        const m = this.tracker.testFeatureMatrix;
+        if (!m) {
+            return [];
+        }
+        const entry = m.tests.find((t) => t.file === element.data);
+        if (!entry) {
+            return [];
+        }
+        return Object.entries(entry.features).map(([name, status]) => {
+            const icon = featureStatusIcon(status);
+            const item = new MonitorItem(
+                `${capitalize(name)}: ${capitalize(status)}`,
+                "testFeatureDetail"
+            );
+            item.iconPath = new vscode.ThemeIcon(icon);
             return item;
         });
     }

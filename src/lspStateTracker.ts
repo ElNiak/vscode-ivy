@@ -89,23 +89,41 @@ export class LspStateTracker implements vscode.Disposable {
             return;
         }
         try {
-            const [status, stats, history, features] = await Promise.all([
-                this.client.sendRequest<ServerStatus>("ivy/serverStatus", null),
-                this.client.sendRequest<IndexerStats>("ivy/indexerStats", null),
-                this.client.sendRequest<OperationHistory>(
-                    "ivy/operationHistory",
-                    null
-                ),
-                this.client.sendRequest<FeatureStatus>(
-                    "ivy/featureStatus",
-                    null
-                ),
-            ]);
+            const [status, stats, history, features, deepIndex, testMatrix] =
+                await Promise.all([
+                    this.client.sendRequest<ServerStatus>(
+                        "ivy/serverStatus",
+                        null
+                    ),
+                    this.client.sendRequest<IndexerStats>(
+                        "ivy/indexerStats",
+                        null
+                    ),
+                    this.client.sendRequest<OperationHistory>(
+                        "ivy/operationHistory",
+                        null
+                    ),
+                    this.client.sendRequest<FeatureStatus>(
+                        "ivy/featureStatus",
+                        null
+                    ),
+                    this.client.sendRequest<DeepIndexProgress>(
+                        "ivy/deepIndexProgress",
+                        null
+                    ),
+                    this.client.sendRequest<TestFeatureMatrix>(
+                        "ivy/testFeatureMatrix",
+                        null
+                    ),
+                ]);
             this.serverStatus = status;
             this.indexerStats = stats;
             this.operationHistory = history;
             this.featureStatus = features;
+            this.deepIndexProgress = deepIndex;
+            this.testFeatureMatrix = testMatrix;
             this._checkForStateChanges();
+            this._checkForDeepIndexChanges();
             this._onDidChange.fire();
         } catch {
             this.serverStatus = null;
