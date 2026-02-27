@@ -71,6 +71,7 @@ export class DashboardPanel {
         const s = this.tracker.serverStatus;
         const stats = this.tracker.indexerStats;
         const history = this.tracker.operationHistory;
+        const featureStatus = this.tracker.featureStatus;
 
         const modeColor = s?.mode === "full" ? "#4caf50" : "#ff9800";
         const modeBadge = s
@@ -91,6 +92,35 @@ export class DashboardPanel {
       </tr>`;
             })
             .join("");
+
+        const featureRows = (featureStatus?.features ?? [])
+            .map((f) => {
+                const color =
+                    f.status === "ready"
+                        ? "#4caf50"
+                        : f.status === "degraded"
+                          ? "#ff9800"
+                          : f.status === "loading"
+                            ? "#2196f3"
+                            : "#f44336";
+                const icon =
+                    f.status === "ready"
+                        ? "&#x2713;"
+                        : f.status === "degraded"
+                          ? "&#x26A0;"
+                          : f.status === "loading"
+                            ? "&#x21BB;"
+                            : "&#x2717;";
+                return `<tr>
+        <td style="color:${color}">${icon}</td>
+        <td>${escapeHtml(f.name)}</td>
+        <td style="color:${color}">${escapeHtml(f.status)}</td>
+        <td>${escapeHtml(f.reason)}</td>
+      </tr>`;
+            })
+            .join("");
+
+        const ps = featureStatus?.analysisPipeline;
 
         return `<!DOCTYPE html>
 <html><head>
@@ -124,6 +154,21 @@ export class DashboardPanel {
       <div class="stat"><div class="value">${stats?.includeEdgeCount ?? 0}</div><div class="label">Includes</div></div>
       <div class="stat"><div class="value">${stats?.testScopeCount ?? 0}</div><div class="label">Tests</div></div>
       <div class="stat"><div class="value">${stats?.staleFiles?.length ?? 0}</div><div class="label">Stale</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Feature Status</h2>
+    <table>
+      <tr><th></th><th>Feature</th><th>Status</th><th>Details</th></tr>
+      ${featureRows || '<tr><td colspan="4">Waiting for server...</td></tr>'}
+    </table>
+    <h3 style="margin-top:12px">Analysis Pipeline</h3>
+    <div class="grid">
+      <div class="stat"><div class="value">${ps?.tier1FileCount ?? 0}</div><div class="label">T1 Files</div></div>
+      <div class="stat"><div class="value">${ps?.tier2FileCount ?? 0}</div><div class="label">T2 Files</div></div>
+      <div class="stat"><div class="value">${ps?.tier3FileCount ?? 0}</div><div class="label">T3 Files</div></div>
+      <div class="stat"><div class="value">${ps?.semanticNodeCount ?? 0}</div><div class="label">Sem. Nodes</div></div>
     </div>
   </div>
 
