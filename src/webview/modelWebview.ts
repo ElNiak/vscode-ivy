@@ -60,6 +60,84 @@ function navigateToSource(id: string, file?: string, line?: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Summary table rendering
+// ---------------------------------------------------------------------------
+
+function renderSummaryTable(data: {
+    rows: any[];
+    totals: any;
+}): void {
+    const table = document.getElementById("summary-table");
+    if (!table) return;
+
+    const thead = table.querySelector("thead tr")!;
+    const tbody = table.querySelector("tbody")!;
+
+    thead.innerHTML = `
+        <th>Action</th>
+        <th>Direction</th>
+        <th>Before (req)</th>
+        <th>Before (ens)</th>
+        <th>After (req)</th>
+        <th>After (ens)</th>
+        <th>Assume</th>
+        <th>Assert</th>
+        <th>Total</th>
+        <th>Vars R/W</th>
+        <th>RFC Tags</th>
+    `;
+
+    tbody.innerHTML = "";
+    for (const row of data.rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td><a href="#" data-file="${row.file}" data-line="${row.line || 0}">${row.actionName}</a></td>
+            <td>${row.direction || "-"}</td>
+            <td>${row.beforeRequireCount}</td>
+            <td>${row.beforeEnsureCount}</td>
+            <td>${row.afterRequireCount}</td>
+            <td>${row.afterEnsureCount}</td>
+            <td>${row.assumeCount}</td>
+            <td>${row.assertCount}</td>
+            <td><strong>${row.totalRequirements}</strong></td>
+            <td>${row.stateVarsRead}/${row.stateVarsWritten}</td>
+            <td>${row.rfcCoverageCount}</td>
+        `;
+        tbody.appendChild(tr);
+    }
+
+    // Totals row
+    if (data.totals) {
+        const tr = document.createElement("tr");
+        tr.style.fontWeight = "bold";
+        tr.innerHTML = `
+            <td>Total (${data.totals.actions} actions)</td>
+            <td>-</td>
+            <td colspan="6"></td>
+            <td>${data.totals.requirements}</td>
+            <td>${data.totals.stateVars}</td>
+            <td>${data.totals.rfcTagsCovered}/${data.totals.rfcTagsTotal}</td>
+        `;
+        tbody.appendChild(tr);
+    }
+
+    // Click handler for action names
+    tbody.querySelectorAll("a[data-file]").forEach((a) => {
+        a.addEventListener("click", (e) => {
+            e.preventDefault();
+            const file = (a as HTMLElement).dataset.file;
+            const line = parseInt(
+                (a as HTMLElement).dataset.line || "0",
+                10,
+            );
+            if (file) {
+                navigateToSource("", file, line);
+            }
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Message handler
 // ---------------------------------------------------------------------------
 
@@ -97,7 +175,9 @@ window.addEventListener("message", (event) => {
             break;
         }
         case "updateModelSummary":
-            // Task 19 will handle summary table rendering.
+            if (msg.data) {
+                renderSummaryTable(msg.data);
+            }
             break;
         case "updateActionRequirements":
             // Task 20 will handle layers rendering.
