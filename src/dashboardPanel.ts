@@ -256,7 +256,7 @@ export class DashboardPanel {
     <div class="grid">
       <div class="stat"><div class="value">${ps?.tier1FileCount ?? 0}</div><div class="label">T1 Files</div></div>
       <div class="stat"><div class="value">${ps?.tier2FileCount ?? 0}</div><div class="label">T2 Files</div></div>
-      <div class="stat"><div class="value">${ps?.tier3FileCount ?? 0}</div><div class="label">T3 Files</div></div>
+      <div class="stat"><div class="value">${ps?.tier3Running ? '&#x21BB; ' + (ps?.tier3FileCount ?? 0) : (ps?.tier3FileCount ?? 0)}</div><div class="label">T3 Files${ps?.tier3Running ? ' (running)' : ''}</div></div>
       <div class="stat"><div class="value">${ps?.semanticNodeCount ?? 0}</div><div class="label">Sem. Nodes</div></div>
     </div>
   </div>
