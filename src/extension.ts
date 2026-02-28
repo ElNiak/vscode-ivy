@@ -45,6 +45,7 @@ import {
     clearRequirementDecorations,
 } from "./requirements/requirementDecorations";
 import { ModelVisualizationPanel } from "./visualization/modelVisualizationPanel";
+import { ActivityChannel } from "./activityChannel";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -53,6 +54,7 @@ let stateTracker: LspStateTracker | undefined;
 let treeProvider: MonitorTreeProvider | undefined;
 let modelDataProvider: ModelDataProvider | undefined;
 let reqTreeProvider: RequirementTreeProvider | undefined;
+let activityChannel: ActivityChannel | undefined;
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -245,6 +247,9 @@ export async function activate(
                 ModelVisualizationPanel.show(context, modelDataProvider);
             }
         }),
+        vscode.commands.registerCommand("ivy.showActivityLog", () => {
+            activityChannel?.show();
+        }),
     );
 
     // Set up monitoring tree view at activation time so the panel is
@@ -259,6 +264,9 @@ export async function activate(
         stateTracker?.setVisible(e.visible)
     );
     context.subscriptions.push(treeView, stateTracker);
+
+    activityChannel = new ActivityChannel();
+    context.subscriptions.push(activityChannel);
 
     // Set up model data provider for visualization features.
     modelDataProvider = new ModelDataProvider(null);
@@ -337,7 +345,14 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.includePaths") ||
                 e.affectsConfiguration("ivy.lsp.excludePaths") ||
                 e.affectsConfiguration("ivy.codeLens.enabled") ||
-                e.affectsConfiguration("ivy.codeLens.rfcCoverage")
+                e.affectsConfiguration("ivy.codeLens.rfcCoverage") ||
+                e.affectsConfiguration("ivy.lsp.bulkAnalysis") ||
+                e.affectsConfiguration("ivy.lsp.bulkAnalysisT2") ||
+                e.affectsConfiguration("ivy.lsp.bulkCompile") ||
+                e.affectsConfiguration("ivy.lsp.compileWorkers") ||
+                e.affectsConfiguration("ivy.lsp.compileTimeout") ||
+                e.affectsConfiguration("ivy.lsp.compileCacheTTL") ||
+                e.affectsConfiguration("ivy.activity.granularity")
             ) {
                 clearCache();
                 await stopClient();
@@ -385,6 +400,8 @@ export async function deactivate(): Promise<void> {
     reqTreeProvider = undefined;
     modelDataProvider?.dispose();
     modelDataProvider = undefined;
+    activityChannel?.dispose();
+    activityChannel = undefined;
     await stopClient();
 }
 
@@ -565,6 +582,34 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<number>("lsp.parseWorkers", 0);
 
+    const bulkAnalysis = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkAnalysis", true);
+
+    const bulkAnalysisT2 = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkAnalysisT2", true);
+
+    const bulkCompile = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkCompile", true);
+
+    const compileWorkers = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileWorkers", 1);
+
+    const compileTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileTimeout", 300);
+
+    const compileCacheTTL = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileCacheTTL", 600);
+
+    const activityGranularity = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string>("activity.granularity", "phase");
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
@@ -576,6 +621,13 @@ async function startWithPython(
                 IVY_LSP_INCLUDE_PATHS: includePaths.join(","),
                 IVY_LSP_EXCLUDE_PATHS: excludePaths.join(","),
                 IVY_LSP_PARSE_WORKERS: String(parseWorkers),
+                IVY_LSP_BULK_ANALYSIS: bulkAnalysis ? "1" : "0",
+                IVY_LSP_BULK_ANALYSIS_T2: bulkAnalysisT2 ? "1" : "0",
+                IVY_LSP_BULK_COMPILE: bulkCompile ? "1" : "0",
+                IVY_LSP_COMPILE_WORKERS: String(compileWorkers),
+                IVY_LSP_COMPILE_TIMEOUT: String(compileTimeout),
+                IVY_LSP_COMPILE_CACHE_TTL: String(compileCacheTTL),
+                IVY_LSP_ACTIVITY_LEVEL: activityGranularity,
             },
         },
     };
@@ -629,11 +681,13 @@ async function startWithPython(
     // Listen for the server mode notification to set status accurately.
     let modeDetected = false;
     client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
+        // Route to structured activity channel
+        activityChannel?.handleLogMessage(params.type, params.message);
+
         if (!modeDetected && params.message.includes("Ivy LSP running in")) {
             modeDetected = true;
             if (params.message.includes("light mode")) {
                 setStatus("running-light", version);
-                // One-time suggestion to install full support.
                 const managed = getManagedVenvPython();
                 if (managed) {
                     offerFullInstall();
@@ -645,11 +699,22 @@ async function startWithPython(
     });
 
     try {
+        console.log("[ivy-ext] calling client.start()...");
         await client.start();
+        console.log("[ivy-ext] client.start() resolved, state =", client.state);
         // Default to running-full until we hear from the server.
         if (!modeDetected) {
             setStatus("running-full", version);
         }
+
+        // Register model/monitor clients IMMEDIATELY — before any await
+        // that could allow ivy/modelReady to arrive without a handler.
+        console.log("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
+        stateTracker?.setClient(client);
+        modelDataProvider?.setClient(client);
+        modelDataProvider?.setVisible(true);
+        console.log("[ivy-ext] setClient + setVisible done");
+
         // Refresh test scope status bar after successful start.
         const tsScopeEnabled = vscode.workspace
             .getConfiguration("ivy")
@@ -658,12 +723,8 @@ async function startWithPython(
             testScopeStatusBar.show();
             await refreshStatusBar(client, testScopeStatusBar);
         }
-
-        // Point the existing tracker at the new client.
-        stateTracker?.setClient(client);
-        modelDataProvider?.setClient(client);
-        modelDataProvider?.setVisible(true);
     } catch (err) {
+        console.error("[ivy-ext] startWithPython try block failed:", err);
         const message =
             err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(
@@ -676,7 +737,11 @@ async function startWithPython(
 async function stopClient(): Promise<void> {
     if (client) {
         try {
-            await client.stop();
+            const stopMs =
+                vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<number>("lsp.stopTimeout", 15) * 1000;
+            await client.stop(stopMs);
         } catch {
             // Client may already be stopped.
         }

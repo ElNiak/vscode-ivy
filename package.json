@@ -166,6 +166,11 @@
         "command": "ivy.refreshRequirements",
         "title": "Ivy: Refresh Requirements",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.showActivityLog",
+        "title": "Ivy: Show Activity Log",
+        "icon": "$(output)"
       }
     ],
     "submenus": [
@@ -400,6 +405,54 @@
           "maximum": 16,
           "description": "Number of parallel worker processes for deep indexing. 0 = auto (half CPU cores), 1 = serial."
         },
+        "ivy.lsp.bulkAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run background Tier 1 + Tier 2 semantic analysis after indexing completes. Disabling speeds up startup but removes RFC coverage and semantic enrichment."
+        },
+        "ivy.lsp.bulkAnalysisT2": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include Tier 2 (AST enrichment) in bulk analysis. Only applies when bulk analysis is enabled. Disable to limit analysis to Tier 1 only."
+        },
+        "ivy.lsp.bulkCompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run background Tier 3 compilation for all test entry points after analysis. Provides full action export/import data for RFC coverage but is memory-intensive."
+        },
+        "ivy.lsp.compileWorkers": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 8,
+          "description": "Maximum number of concurrent Ivy compilation processes. Each process loads Z3 + Ivy (~300-500 MB). Increase on machines with ample RAM."
+        },
+        "ivy.lsp.compileTimeout": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "description": "Timeout in seconds for each background compilation. Applies to bulk T3 compilation (not user-initiated compile commands, which use ivy.tools.compileTimeout)."
+        },
+        "ivy.lsp.compileCacheTTL": {
+          "type": "number",
+          "default": 600,
+          "minimum": 0,
+          "description": "Time-to-live in seconds for cached compilation results. Set to 0 to disable caching."
+        },
+        "ivy.lsp.panelRequestTimeout": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Timeout in seconds for model panel requests (action requirements, summary, coverage gaps, dependency graph, state machine). Increase for large workspaces where background analysis causes lock contention."
+        },
+        "ivy.lsp.stopTimeout": {
+          "type": "number",
+          "default": 15,
+          "minimum": 5,
+          "maximum": 60,
+          "description": "Timeout in seconds for stopping the language server. Increase if you see 'Array buffer allocation failed' or 'Shutting down server' errors on large workspaces."
+        },
         "ivy.codeLens.enabled": {
           "type": "boolean",
           "default": true,
@@ -439,6 +492,26 @@
           "type": "boolean",
           "default": true,
           "description": "Show NCT classification tags ([ASSUMPTION]/[GUARANTEE]) in code lens labels when a test scope is active."
+        },
+        "ivy.activity.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Ivy Activity structured log channel for monitoring server events."
+        },
+        "ivy.activity.categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["MIL", "DIA", "PER", "ACT"]
+          },
+          "default": ["MIL", "DIA", "PER"],
+          "description": "Which log categories to show (MIL=milestones, DIA=diagnostics, PER=performance, ACT=activity)."
+        },
+        "ivy.activity.granularity": {
+          "type": "string",
+          "enum": ["phase", "file"],
+          "default": "phase",
+          "description": "Log granularity: 'phase' shows major events only, 'file' adds per-file details (increases server output)."
         }
       }
     }
