@@ -2,6 +2,7 @@
 
 import * as vscode from "vscode";
 import { LspStateTracker } from "./lspStateTracker";
+import { formatDuration } from "./utils";
 
 export class DashboardPanel {
     private static _panel: vscode.WebviewPanel | undefined;
@@ -51,23 +52,31 @@ export class DashboardPanel {
         type: string;
         action?: string;
     }): Promise<void> {
-        switch (msg.action) {
-            case "reindex":
-                await this.tracker.sendReindex();
-                break;
-            case "clearCache":
-                await this.tracker.sendClearCache();
-                break;
-            case "restart":
-                await vscode.commands.executeCommand("ivy.resetServer");
-                break;
-            case "refresh":
-                await this.tracker.refreshNow();
-                break;
+        try {
+            switch (msg.action) {
+                case "reindex":
+                    await this.tracker.sendReindex();
+                    break;
+                case "clearCache":
+                    await this.tracker.sendClearCache();
+                    break;
+                case "restart":
+                    await vscode.commands.executeCommand("ivy.resetServer");
+                    break;
+                case "refresh":
+                    await this.tracker.refreshNow();
+                    break;
+            }
+        } catch (err) {
+            console.error("[ivy-dashboard] Action failed:", msg.action, err);
+            vscode.window.showErrorMessage(
+                `Ivy Dashboard: ${msg.action ?? "action"} failed`
+            );
         }
     }
 
     private _getHtml(): string {
+        const nonce = getNonce();
         const s = this.tracker.serverStatus;
         const stats = this.tracker.indexerStats;
         const history = this.tracker.operationHistory;
@@ -120,7 +129,7 @@ export class DashboardPanel {
             })
             .join("");
 
-        const ps = featureStatus?.analysisPipeline;
+        const pd = this.tracker.pipelineDetail;
 
         const testMatrix = this.tracker.testFeatureMatrix;
         const testMatrixRows = (testMatrix?.tests ?? [])
@@ -193,6 +202,8 @@ export class DashboardPanel {
 
         return `<!DOCTYPE html>
 <html><head>
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
   body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); background: var(--vscode-editor-background); padding: 16px; }
   .card { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-widget-border); border-radius: 6px; padding: 16px; margin-bottom: 16px; }
@@ -252,19 +263,34 @@ export class DashboardPanel {
       <tr><th></th><th>Feature</th><th>Status</th><th>Details</th></tr>
       ${featureRows || '<tr><td colspan="4">Waiting for server...</td></tr>'}
     </table>
-    <h3 style="margin-top:12px">Analysis Pipeline</h3>
+  </div>
+
+  <div class="card">
+    <h2>Analysis Pipeline</h2>
     <div class="grid">
-      <div class="stat"><div class="value">${ps?.tier1FileCount ?? 0}</div><div class="label">T1 Files</div></div>
-      <div class="stat"><div class="value">${ps?.tier2FileCount ?? 0}</div><div class="label">T2 Files</div></div>
-      <div class="stat"><div class="value">${ps?.tier3Running ? '&#x21BB; ' + (ps?.tier3FileCount ?? 0) : (ps?.tier3FileCount ?? 0)}</div><div class="label">T3 Files${ps?.tier3Running ? ' (running)' : ''}</div></div>
-      <div class="stat"><div class="value">${ps?.semanticNodeCount ?? 0}</div><div class="label">Sem. Nodes</div></div>
+      <div class="stat"><div class="value">${pd?.tiers.t1 ?? 0}</div><div class="label">T1 Files</div></div>
+      <div class="stat"><div class="value">${pd?.tiers.t2 ?? 0}</div><div class="label">T2 Files</div></div>
+      <div class="stat"><div class="value">${pd?.tiers.t3 ?? 0}</div><div class="label">T3 Files</div></div>
+      <div class="stat"><div class="value">${pd?.semanticModel.nodeCount ?? 0}</div><div class="label">Sem. Nodes</div></div>
+      <div class="stat"><div class="value">${pd?.semanticModel.edgeCount ?? 0}</div><div class="label">Sem. Edges</div></div>
     </div>
-    ${ps?.bulkAnalysisRunning ? `
-    <p style="margin-top:8px">Background Analysis: ${ps.bulkAnalysisCompleted}/${ps.bulkAnalysisTotal} files</p>
+    <h3 style="margin-top:12px">Tier 3 Compilation</h3>
+    <p>${pd?.tier3.running ? `&#x21BB; Compiling: ${escapeHtml((pd.tier3.currentFile ?? "").split("/").pop() ?? "")}` : pd?.tier3.fileCount ? `${pd.tier3.succeeded} passed, ${pd.tier3.failed} failed` : "No results yet"}</p>
+    ${pd?.tier3.lastFile ? `<p style="font-size:11px;opacity:0.7">Last: ${escapeHtml(pd.tier3.lastFile.split("/").pop() ?? "")}</p>` : ""}
+    ${pd?.compilation.running ? `
+    <h3 style="margin-top:12px">Compilation</h3>
+    <p>${pd.compilation.completed}/${pd.compilation.total} files</p>
     <div style="background:var(--vscode-editorWidget-border);border-radius:4px;height:8px;margin:4px 0">
-      <div style="background:#2196f3;height:100%;width:${Math.round((ps.bulkAnalysisCompleted/Math.max(ps.bulkAnalysisTotal,1))*100)}%;border-radius:4px;transition:width 0.3s"></div>
+      <div style="background:#2196f3;height:100%;width:${Math.round((pd.compilation.completed/Math.max(pd.compilation.total,1))*100)}%;border-radius:4px;transition:width 0.3s"></div>
     </div>
-    ` : ''}
+    ` : pd?.compilation.cachedFiles ? `<p style="margin-top:8px;font-size:11px;opacity:0.7">Compilation cache: ${pd.compilation.cachedFiles} files</p>` : ""}
+    ${pd?.bulk.running ? `
+    <h3 style="margin-top:12px">Bulk Analysis</h3>
+    <p>${pd.bulk.completed}/${pd.bulk.total} files</p>
+    <div style="background:var(--vscode-editorWidget-border);border-radius:4px;height:8px;margin:4px 0">
+      <div style="background:#ff9800;height:100%;width:${Math.round((pd.bulk.completed/Math.max(pd.bulk.total,1))*100)}%;border-radius:4px;transition:width 0.3s"></div>
+    </div>
+    ` : ""}
   </div>
 
   <div class="card">
@@ -282,7 +308,7 @@ export class DashboardPanel {
     <button onclick="send('refresh')">Refresh</button>
   </div>
 
-  <script>
+  <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     function send(action) { vscode.postMessage({ type: 'action', action }); }
   </script>
@@ -294,20 +320,19 @@ export class DashboardPanel {
     }
 }
 
-function formatDuration(seconds: number): string {
-    if (seconds < 60) {
-        return `${Math.floor(seconds)}s`;
-    }
-    if (seconds < 3600) {
-        return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-    }
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-}
-
 function escapeHtml(text: string): string {
     return text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;");
+}
+
+function getNonce(): string {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let nonce = "";
+    for (let i = 0; i < 32; i++) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
 }

@@ -10,6 +10,7 @@ import {
     FeatureStatus,
     DeepIndexProgress,
     TestFeatureMatrix,
+    AnalysisPipelineDetail,
 } from "./monitorTypes";
 
 /** Timeout (ms) for individual poll requests. */
@@ -22,6 +23,9 @@ export class LspStateTracker implements vscode.Disposable {
     private _historyTimer: ReturnType<typeof setInterval> | null = null;
     private _featureTimer: ReturnType<typeof setInterval> | null = null;
     private _progressTimer: ReturnType<typeof setInterval> | null = null;
+    private _pipelineTimer: ReturnType<typeof setInterval> | null = null;
+    /** Pending stagger timeouts that create interval timers at startup. */
+    private _staggerTimers: ReturnType<typeof setTimeout>[] = [];
     private _visible = false;
 
     /** Cached state from most recent poll. */
@@ -31,16 +35,16 @@ export class LspStateTracker implements vscode.Disposable {
     public featureStatus: FeatureStatus | null = null;
     public deepIndexProgress: DeepIndexProgress | null = null;
     public testFeatureMatrix: TestFeatureMatrix | null = null;
+    public pipelineDetail: AnalysisPipelineDetail | null = null;
 
     /** State-change detection for toast notifications. */
     private _prevIndexingState: string | null = null;
     private _prevStaleCount = 0;
     private _prevDeepIndexRunning = false;
+    private _prevTier3FileCount = 0;
 
-    /** Exponential backoff: number of consecutive failures (0 = healthy). */
-    private _backoff = 0;
-    /** Skip counter: decremented each poll cycle; polls are skipped while > 0. */
-    private _skipCount = 0;
+    /** Per-endpoint exponential backoff to isolate failures. */
+    private _backoffs: Record<string, { backoff: number; skipCount: number }> = {};
 
     /** Fires when any cached state changes. */
     private _onDidChange = new vscode.EventEmitter<void>();
@@ -58,11 +62,12 @@ export class LspStateTracker implements vscode.Disposable {
         this.featureStatus = null;
         this.deepIndexProgress = null;
         this.testFeatureMatrix = null;
+        this.pipelineDetail = null;
         this._prevIndexingState = null;
         this._prevStaleCount = 0;
         this._prevDeepIndexRunning = false;
-        this._backoff = 0;
-        this._skipCount = 0;
+        this._prevTier3FileCount = 0;
+        this._backoffs = {};
         this._onDidChange.fire();
         if (this._visible && newClient) {
             this._startPolling();
@@ -83,49 +88,76 @@ export class LspStateTracker implements vscode.Disposable {
         }
     }
 
-    /** Force an immediate refresh of all cached state. */
+    /** Force an immediate refresh of all cached state.
+     *
+     * Requests are sent sequentially with short gaps to avoid flooding
+     * the LSP stdio pipe at startup (which can trigger OOM crashes in
+     * Node.js when many large responses arrive simultaneously).
+     */
     async refreshNow(): Promise<void> {
         if (!this.client || this.client.state !== 2 /* Running */) {
             return;
         }
+        const delay = (ms: number) =>
+            new Promise<void>((r) => setTimeout(r, ms));
         try {
-            const [status, stats, history, features, deepIndex, testMatrix] =
-                await Promise.all([
-                    this.client.sendRequest<ServerStatus>(
-                        "ivy/serverStatus",
-                        null
-                    ),
-                    this.client.sendRequest<IndexerStats>(
-                        "ivy/indexerStats",
-                        null
-                    ),
-                    this.client.sendRequest<OperationHistory>(
-                        "ivy/operationHistory",
-                        null
-                    ),
-                    this.client.sendRequest<FeatureStatus>(
-                        "ivy/featureStatus",
-                        null
-                    ),
-                    this.client.sendRequest<DeepIndexProgress>(
-                        "ivy/deepIndexProgress",
-                        null
-                    ),
-                    this.client.sendRequest<TestFeatureMatrix>(
-                        "ivy/testFeatureMatrix",
-                        null
-                    ),
-                ]);
+            const status = await this.client.sendRequest<ServerStatus>(
+                "ivy/serverStatus",
+                null
+            );
             this.serverStatus = status;
+            await delay(100);
+
+            const stats = await this.client.sendRequest<IndexerStats>(
+                "ivy/indexerStats",
+                null
+            );
             this.indexerStats = stats;
+            await delay(100);
+
+            const history = await this.client.sendRequest<OperationHistory>(
+                "ivy/operationHistory",
+                null
+            );
             this.operationHistory = history;
+            await delay(100);
+
+            const features = await this.client.sendRequest<FeatureStatus>(
+                "ivy/featureStatus",
+                null
+            );
             this.featureStatus = features;
+            await delay(100);
+
+            const deepIndex =
+                await this.client.sendRequest<DeepIndexProgress>(
+                    "ivy/deepIndexProgress",
+                    null
+                );
             this.deepIndexProgress = deepIndex;
+            await delay(100);
+
+            const testMatrix =
+                await this.client.sendRequest<TestFeatureMatrix>(
+                    "ivy/testFeatureMatrix",
+                    null
+                );
             this.testFeatureMatrix = testMatrix;
+            await delay(100);
+
+            const pipelineDetail =
+                await this.client.sendRequest<AnalysisPipelineDetail>(
+                    "ivy/analysisPipelineDetail",
+                    null
+                );
+            this.pipelineDetail = pipelineDetail;
+
             this._checkForStateChanges();
             this._checkForDeepIndexChanges();
+            this._checkForTier3Changes();
             this._onDidChange.fire();
-        } catch {
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow failed:", err);
             this.serverStatus = null;
             this.featureStatus = null;
             this._onDidChange.fire();
@@ -150,15 +182,46 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._statusTimer) {
             return;
         }
+        // Stagger initial refresh and timer creation to avoid flooding
+        // the stdio pipe at startup.  Track stagger timeouts so
+        // _stopPolling() can cancel them before they fire.
         this.refreshNow();
         this._statusTimer = setInterval(() => this._pollStatus(), 3000);
-        this._statsTimer = setInterval(() => this._pollStats(), 10000);
-        this._historyTimer = setInterval(() => this._pollHistory(), 5000);
-        this._featureTimer = setInterval(() => this._pollFeatures(), 5000);
-        this._progressTimer = setInterval(() => this._pollProgress(), 2000);
+        this._staggerTimers.push(setTimeout(() => {
+            this._statsTimer = setInterval(() => this._pollStats(), 10000);
+        }, 500));
+        this._staggerTimers.push(setTimeout(() => {
+            this._historyTimer = setInterval(
+                () => this._pollHistory(),
+                5000
+            );
+        }, 1000));
+        this._staggerTimers.push(setTimeout(() => {
+            this._featureTimer = setInterval(
+                () => this._pollFeatures(),
+                5000
+            );
+        }, 1500));
+        this._staggerTimers.push(setTimeout(() => {
+            this._progressTimer = setInterval(
+                () => this._pollProgress(),
+                2000
+            );
+        }, 2000));
+        this._staggerTimers.push(setTimeout(() => {
+            this._pipelineTimer = setInterval(
+                () => this._pollPipelineDetail(),
+                3000
+            );
+        }, 2500));
     }
 
     private _stopPolling(): void {
+        // Cancel pending stagger timeouts before they create new intervals.
+        for (const t of this._staggerTimers) {
+            clearTimeout(t);
+        }
+        this._staggerTimers = [];
         if (this._statusTimer) {
             clearInterval(this._statusTimer);
         }
@@ -174,42 +237,57 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._progressTimer) {
             clearInterval(this._progressTimer);
         }
+        if (this._pipelineTimer) {
+            clearInterval(this._pipelineTimer);
+        }
         this._statusTimer = null;
         this._statsTimer = null;
         this._historyTimer = null;
         this._featureTimer = null;
         this._progressTimer = null;
+        this._pipelineTimer = null;
     }
 
     /** Send a request with a timeout to prevent indefinite hangs. */
     private _sendWithTimeout<T>(method: string): Promise<T> {
-        return Promise.race([
-            this.client!.sendRequest<T>(method, null),
-            new Promise<never>((_, reject) =>
-                setTimeout(
-                    () => reject(new Error(`${method} timed out`)),
-                    POLL_TIMEOUT_MS
-                )
-            ),
-        ]);
+        return new Promise<T>((resolve, reject) => {
+            const timer = setTimeout(
+                () => reject(new Error(`${method} timed out`)),
+                POLL_TIMEOUT_MS,
+            );
+            this.client!.sendRequest<T>(method, null).then(
+                (result) => { clearTimeout(timer); resolve(result); },
+                (err) => { clearTimeout(timer); reject(err); },
+            );
+        });
     }
 
-    /** Record a successful poll (resets backoff). */
-    private _onPollSuccess(): void {
-        this._backoff = 0;
-        this._skipCount = 0;
+    private _getBackoff(endpoint: string): { backoff: number; skipCount: number } {
+        if (!this._backoffs[endpoint]) {
+            this._backoffs[endpoint] = { backoff: 0, skipCount: 0 };
+        }
+        return this._backoffs[endpoint];
     }
 
-    /** Record a failed poll (increases backoff). */
-    private _onPollFailure(): void {
-        this._backoff = Math.min(this._backoff + 1, 5);
-        this._skipCount = this._backoff;
+    /** Record a successful poll (resets backoff for this endpoint). */
+    private _onPollSuccess(endpoint: string): void {
+        const state = this._getBackoff(endpoint);
+        state.backoff = 0;
+        state.skipCount = 0;
+    }
+
+    /** Record a failed poll (increases backoff for this endpoint). */
+    private _onPollFailure(endpoint: string): void {
+        const state = this._getBackoff(endpoint);
+        state.backoff = Math.min(state.backoff + 1, 5);
+        state.skipCount = state.backoff;
     }
 
     /** Returns true if this poll cycle should be skipped due to backoff. */
-    private _shouldSkip(): boolean {
-        if (this._skipCount > 0) {
-            this._skipCount--;
+    private _shouldSkip(endpoint: string): boolean {
+        const state = this._getBackoff(endpoint);
+        if (state.skipCount > 0) {
+            state.skipCount--;
             return true;
         }
         return false;
@@ -219,18 +297,19 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip()) {
+        if (this._shouldSkip("status")) {
             return;
         }
         try {
             this.serverStatus = await this._sendWithTimeout<ServerStatus>(
                 "ivy/serverStatus"
             );
-            this._onPollSuccess();
+            this._onPollSuccess("status");
             this._checkForStateChanges();
             this._onDidChange.fire();
-        } catch {
-            this._onPollFailure();
+        } catch (err) {
+            console.debug("[ivy-tracker] status poll failed:", err);
+            this._onPollFailure("status");
         }
     }
 
@@ -238,17 +317,18 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip()) {
+        if (this._shouldSkip("stats")) {
             return;
         }
         try {
             this.indexerStats = await this._sendWithTimeout<IndexerStats>(
                 "ivy/indexerStats"
             );
-            this._onPollSuccess();
+            this._onPollSuccess("stats");
             this._onDidChange.fire();
-        } catch {
-            this._onPollFailure();
+        } catch (err) {
+            console.debug("[ivy-tracker] stats poll failed:", err);
+            this._onPollFailure("stats");
         }
     }
 
@@ -256,7 +336,7 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip()) {
+        if (this._shouldSkip("history")) {
             return;
         }
         try {
@@ -264,10 +344,11 @@ export class LspStateTracker implements vscode.Disposable {
                 await this._sendWithTimeout<OperationHistory>(
                     "ivy/operationHistory"
                 );
-            this._onPollSuccess();
+            this._onPollSuccess("history");
             this._onDidChange.fire();
-        } catch {
-            this._onPollFailure();
+        } catch (err) {
+            console.debug("[ivy-tracker] history poll failed:", err);
+            this._onPollFailure("history");
         }
     }
 
@@ -275,17 +356,18 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip()) {
+        if (this._shouldSkip("features")) {
             return;
         }
         try {
             this.featureStatus = await this._sendWithTimeout<FeatureStatus>(
                 "ivy/featureStatus"
             );
-            this._onPollSuccess();
+            this._onPollSuccess("features");
             this._onDidChange.fire();
-        } catch {
-            this._onPollFailure();
+        } catch (err) {
+            console.debug("[ivy-tracker] features poll failed:", err);
+            this._onPollFailure("features");
         }
     }
 
@@ -343,7 +425,7 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip()) {
+        if (this._shouldSkip("progress")) {
             return;
         }
         try {
@@ -357,11 +439,12 @@ export class LspStateTracker implements vscode.Disposable {
             ]);
             this.deepIndexProgress = progress;
             this.testFeatureMatrix = matrix;
-            this._onPollSuccess();
+            this._onPollSuccess("progress");
             this._checkForDeepIndexChanges();
             this._onDidChange.fire();
-        } catch {
-            this._onPollFailure();
+        } catch (err) {
+            console.debug("[ivy-tracker] progress poll failed:", err);
+            this._onPollFailure("progress");
         }
     }
 
@@ -377,6 +460,42 @@ export class LspStateTracker implements vscode.Disposable {
             );
         }
         this._prevDeepIndexRunning = running;
+    }
+
+    private async _pollPipelineDetail(): Promise<void> {
+        if (!this.client || this.client.state !== 2) {
+            return;
+        }
+        if (this._shouldSkip("pipeline")) {
+            return;
+        }
+        try {
+            this.pipelineDetail =
+                await this._sendWithTimeout<AnalysisPipelineDetail>(
+                    "ivy/analysisPipelineDetail"
+                );
+            this._onPollSuccess("pipeline");
+            this._checkForTier3Changes();
+            this._onDidChange.fire();
+        } catch (err) {
+            console.debug("[ivy-tracker] pipeline poll failed:", err);
+            this._onPollFailure("pipeline");
+        }
+    }
+
+    private _checkForTier3Changes(): void {
+        if (!this.pipelineDetail) {
+            return;
+        }
+        const currentCount = this.pipelineDetail.tier3.fileCount;
+        if (currentCount > this._prevTier3FileCount && this._prevTier3FileCount > 0) {
+            const { succeeded, failed } = this.pipelineDetail.tier3;
+            const msg = failed > 0
+                ? `Ivy: T3 analysis complete (${succeeded} passed, ${failed} failed)`
+                : `Ivy: T3 analysis complete (${succeeded} passed)`;
+            vscode.window.showInformationMessage(msg);
+        }
+        this._prevTier3FileCount = currentCount;
     }
 
     dispose(): void {
