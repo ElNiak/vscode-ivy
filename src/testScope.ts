@@ -187,8 +187,12 @@ export async function onActiveEditorChanged(
 
     try {
         await client.sendNotification("ivy/activeDocumentChanged", { uri });
-    } catch {
-        // Server may not support this notification yet -- ignore
+    } catch (err: unknown) {
+        // -32601 = method not found, expected if server doesn't support this yet
+        const code = (err as any)?.code;
+        if (code !== -32601) {
+            console.warn("[ivy-scope] onActiveEditorChanged notification failed:", err);
+        }
     }
 }
 
@@ -204,7 +208,13 @@ export async function refreshStatusBar(
             {}
         );
         updateStatusBar(statusBar, response.activeTest);
-    } catch {
-        // Server not ready or feature not available
+    } catch (err) {
+        console.debug("[ivy-scope] refreshStatusBar failed:", err);
     }
+}
+
+/** Clean up resources created by the testScope module. */
+export function disposeTestScope(): void {
+    testsChannel?.dispose();
+    testsChannel = undefined;
 }

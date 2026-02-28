@@ -79,6 +79,8 @@ export interface ActionRequirementsResponse {
     scopeInfo: ScopeInfo;
     modelReady: boolean;
     pagination?: PaginationInfo;
+    error?: string;
+    _debug?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +121,8 @@ export interface ModelSummaryResponse {
     rows: ModelSummaryRow[];
     totals: ModelSummaryTotals;
     scopeInfo: ScopeInfo;
+    error?: string;
+    _debug?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -173,6 +177,8 @@ export interface CoverageGapsResponse {
     orphanRequirements: OrphanRequirement[];
     summary: CoverageGapsSummary;
     scopeInfo: ScopeInfo;
+    error?: string;
+    _debug?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +200,7 @@ export interface GraphEdge {
     source: string;
     target: string;
     label?: string;
-    type: "reads" | "writes" | "monitors" | "shared_state";
+    type: "reads" | "writes" | "shared_state";
 }
 
 /** Top-level response for `ivy/actionDependencyGraph`. */
@@ -203,6 +209,8 @@ export interface ActionDependencyGraphResponse {
     edges: GraphEdge[];
     truncated?: boolean;
     scopeInfo: ScopeInfo;
+    error?: string;
+    _debug?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +240,8 @@ export interface StateMachineViewResponse {
     transitions: StateMachineTransition[];
     truncated?: boolean;
     scopeInfo: ScopeInfo;
+    error?: string;
+    _debug?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -251,4 +261,34 @@ export interface LayerGroup {
 export interface LayeredOverviewResponse {
     layers: LayerGroup[];
     scopeInfo: ScopeInfo;
+    error?: string;
+    _debug?: string;
+}
+
+// ---------------------------------------------------------------------------
+// ivy/smartSuggestions
+// ---------------------------------------------------------------------------
+
+/** A context-aware suggestion from the semantic model. */
+export interface SmartSuggestion {
+    type: "state_var" | "missing_guard";
+    name: string;
+    qualifiedName?: string;
+    reason: string;
+    priority: "high" | "medium" | "low";
+    template?: string;
+}
+
+/** Context metadata returned alongside suggestions. */
+export interface SmartSuggestionContext {
+    file: string;
+    line: number;
+    action: string | null;
+}
+
+/** Top-level response for `ivy/smartSuggestions`. */
+export interface SmartSuggestionsResponse {
+    suggestions: SmartSuggestion[];
+    context: SmartSuggestionContext | null;
+    error?: string;
 }

@@ -98,6 +98,7 @@ export interface FileIndexStatus {
     deepParseAttempted: boolean;
     deepParseSucceeded: boolean;
     parseError: string | null;
+    parseDuration?: number;
 }
 
 export interface DeepIndexProgress {

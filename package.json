@@ -488,11 +488,6 @@
           "default": true,
           "description": "Automatically set the active test when opening a test file. The scope stays sticky when switching to non-test files."
         },
-        "ivy.testScope.showNctLabels": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show NCT classification tags ([ASSUMPTION]/[GUARANTEE]) in code lens labels when a test scope is active."
-        },
         "ivy.activity.enabled": {
           "type": "boolean",
           "default": true,

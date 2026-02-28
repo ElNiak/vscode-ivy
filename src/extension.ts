@@ -33,6 +33,7 @@ import {
     onActiveEditorChanged,
     refreshStatusBar,
     updateStatusBar,
+    disposeTestScope,
 } from "./testScope";
 import { isOlderVersion } from "./version";
 import { LspStateTracker } from "./lspStateTracker";
@@ -175,8 +176,9 @@ export async function activate(
                     "ivy/listTests", {}
                 );
                 modelDataProvider?.setActiveTestFile(resp.activeTest);
-            } catch {
-                // Best-effort; server fallback handles the scope too.
+                await modelDataProvider?.refreshNow(true);
+            } catch (err) {
+                console.warn("[ivy-ext] Failed to sync active test after setActiveTest:", err);
             }
         }),
         vscode.commands.registerCommand("ivy.listTests", async () => {
@@ -420,6 +422,18 @@ export async function activate(
                     .get<boolean>("testScope.autoDetect", true);
                 await onActiveEditorChanged(client, editor, autoDetect);
                 await refreshStatusBar(client, testScopeStatusBar);
+                // Sync active test scope to model data provider
+                try {
+                    if (modelDataProvider && client) {
+                        const resp = await client.sendRequest<{ activeTest: string | null }>(
+                            "ivy/listTests", {}
+                        );
+                        modelDataProvider.setActiveTestFile(resp.activeTest);
+                        await modelDataProvider.refreshNow(true);
+                    }
+                } catch {
+                    // Best-effort sync
+                }
             }, 500);
         })
     );
@@ -434,6 +448,7 @@ export async function deactivate(): Promise<void> {
     // All disposable objects are already in context.subscriptions,
     // which VS Code disposes automatically. Just stop the LSP client.
     modelVisibleConsumers.clear();
+    disposeTestScope();
     await stopClient();
 }
 
@@ -452,10 +467,15 @@ class ConfigurableErrorHandler implements ErrorHandler {
     }
 
     error(
-        _error: Error,
-        _message: Message | undefined,
+        error: Error,
+        message: Message | undefined,
         count: number | undefined
     ): ErrorHandlerResult {
+        console.warn(
+            `[ivy-lsp] LSP error #${count ?? "?"}:`,
+            error.message,
+            message ? `(method: ${(message as any).method ?? "unknown"})` : "",
+        );
         if (count && count <= 3) {
             return { action: ErrorAction.Continue };
         }

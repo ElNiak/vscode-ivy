@@ -100,73 +100,97 @@ export class LspStateTracker implements vscode.Disposable {
         }
         const delay = (ms: number) =>
             new Promise<void>((r) => setTimeout(r, ms));
+
         try {
             const status = await this.client.sendRequest<ServerStatus>(
                 "ivy/serverStatus",
                 null
             );
             this.serverStatus = status;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
+            this.serverStatus = null;
+        }
+        await delay(100);
 
+        try {
             const stats = await this.client.sendRequest<IndexerStats>(
                 "ivy/indexerStats",
                 null
             );
             this.indexerStats = stats;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
+            this.indexerStats = null;
+        }
+        await delay(100);
 
+        try {
             const history = await this.client.sendRequest<OperationHistory>(
                 "ivy/operationHistory",
                 null
             );
             this.operationHistory = history;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
+            this.operationHistory = null;
+        }
+        await delay(100);
 
+        try {
             const features = await this.client.sendRequest<FeatureStatus>(
                 "ivy/featureStatus",
                 null
             );
             this.featureStatus = features;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
+            this.featureStatus = null;
+        }
+        await delay(100);
 
+        try {
             const deepIndex =
                 await this.client.sendRequest<DeepIndexProgress>(
                     "ivy/deepIndexProgress",
                     null
                 );
             this.deepIndexProgress = deepIndex;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
+            this.deepIndexProgress = null;
+        }
+        await delay(100);
 
+        try {
             const testMatrix =
                 await this.client.sendRequest<TestFeatureMatrix>(
                     "ivy/testFeatureMatrix",
                     null
                 );
             this.testFeatureMatrix = testMatrix;
-            await delay(100);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
+            this.testFeatureMatrix = null;
+        }
+        await delay(100);
 
+        try {
             const pipelineDetail =
                 await this.client.sendRequest<AnalysisPipelineDetail>(
                     "ivy/analysisPipelineDetail",
                     null
                 );
             this.pipelineDetail = pipelineDetail;
-
-            this._checkForStateChanges();
-            this._checkForDeepIndexChanges();
-            this._checkForTier3Changes();
-            this._onDidChange.fire();
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow failed:", err);
-            this.serverStatus = null;
-            this.indexerStats = null;
-            this.operationHistory = null;
-            this.featureStatus = null;
-            this.deepIndexProgress = null;
-            this.testFeatureMatrix = null;
+            console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
             this.pipelineDetail = null;
-            this._onDidChange.fire();
         }
+
+        this._checkForStateChanges();
+        this._checkForDeepIndexChanges();
+        this._checkForTier3Changes();
+        this._onDidChange.fire();
     }
 
     async sendReindex(): Promise<ActionResult | null> {

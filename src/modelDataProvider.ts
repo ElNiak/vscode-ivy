@@ -120,6 +120,19 @@ export class ModelDataProvider implements vscode.Disposable {
             );
         }
 
+        // Safety fallback: if no modelReady notification arrives within 90s,
+        // try a forced refresh anyway.
+        if (newClient) {
+            const capturedVersion = this._clientVersion;
+            setTimeout(() => {
+                if (this._clientVersion === capturedVersion && !this._modelReadyReceived) {
+                    console.warn("[ivy-model] No ivy/modelReady after 90s, forcing refresh");
+                    this._modelReadyReceived = true;
+                    this.refreshNow(true);
+                }
+            }, 90_000);
+        }
+
         this._onDidChange.fire();
         if (this._visible && newClient) {
             this._startPolling();
@@ -271,34 +284,33 @@ export class ModelDataProvider implements vscode.Disposable {
         }
     }
 
-    /** Fetch graph endpoints (only when webview is open). */
+    /** Fetch graph endpoints (only when webview is open).
+     *
+     * Requests are sent sequentially (like {@link refreshNow}) to avoid
+     * flooding the LSP stdio pipe — graph responses can be large.
+     */
     async refreshGraphs(): Promise<void> {
         if (!this._client || this._client.state !== 2) {
             return;
         }
         const scopeParams = this._getScopeParams();
-        const [depResult, smResult] = await Promise.allSettled([
-            this._sendWithTimeout<ActionDependencyGraphResponse>(
-                "ivy/actionDependencyGraph",
-                scopeParams,
-            ),
-            this._sendWithTimeout<StateMachineViewResponse>(
-                "ivy/stateMachineView",
-                scopeParams,
-            ),
-        ]);
-        if (depResult.status === "fulfilled") {
-            this.dependencyGraph = depResult.value;
-        } else {
-            console.warn(
-                "ivy/actionDependencyGraph failed:",
-                depResult.reason
-            );
+        try {
+            this.dependencyGraph =
+                await this._sendWithTimeout<ActionDependencyGraphResponse>(
+                    "ivy/actionDependencyGraph",
+                    scopeParams,
+                );
+        } catch (err) {
+            console.warn("ivy/actionDependencyGraph failed:", err);
         }
-        if (smResult.status === "fulfilled") {
-            this.stateMachine = smResult.value;
-        } else {
-            console.warn("ivy/stateMachineView failed:", smResult.reason);
+        try {
+            this.stateMachine =
+                await this._sendWithTimeout<StateMachineViewResponse>(
+                    "ivy/stateMachineView",
+                    scopeParams,
+                );
+        } catch (err) {
+            console.warn("ivy/stateMachineView failed:", err);
         }
         this._onDidChange.fire();
     }
