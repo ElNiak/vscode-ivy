@@ -11,6 +11,7 @@ suite("MonitorTreeProvider", () => {
             featureStatus: any;
             deepIndexProgress: any;
             testFeatureMatrix: any;
+            pipelineDetail: any;
         }> = {}
     ): LspStateTracker {
         const tracker = new LspStateTracker(null as any);
@@ -32,6 +33,9 @@ suite("MonitorTreeProvider", () => {
         if (overrides.testFeatureMatrix !== undefined) {
             tracker.testFeatureMatrix = overrides.testFeatureMatrix;
         }
+        if (overrides.pipelineDetail !== undefined) {
+            tracker.pipelineDetail = overrides.pipelineDetail;
+        }
         return tracker;
     }
 
@@ -44,12 +48,13 @@ suite("MonitorTreeProvider", () => {
         );
     });
 
-    test("root sections include Server, Indexing, Operations, Recent", async () => {
+    test("root sections include Server, Indexing, Analysis Pipeline, Operations, Recent", async () => {
         const provider = new MonitorTreeProvider(makeTracker());
         const children = await provider.getChildren(undefined);
         const ids = children.map((c: MonitorItem) => c.sectionId);
         assert.ok(ids.includes("server"));
         assert.ok(ids.includes("indexing"));
+        assert.ok(ids.includes("analysisPipeline"));
         assert.ok(ids.includes("operations"));
         assert.ok(ids.includes("recent"));
     });
@@ -149,8 +154,9 @@ suite("MonitorTreeProvider", () => {
             ],
             analysisPipeline: {
                 tier1FileCount: 5, tier2FileCount: 3, tier3FileCount: 0,
-                tier3Running: false, semanticNodeCount: 42,
-                semanticEdgeCount: 10, semanticModelReady: true,
+                tier3Running: false, tier3Succeeded: 0, tier3Failed: 0,
+                tier3CurrentFile: null, tier3LastFile: null, tier3LastCompletedAt: null,
+                semanticNodeCount: 42, semanticEdgeCount: 10, semanticModelReady: true,
             },
         };
         const provider = new MonitorTreeProvider(tracker);
@@ -158,11 +164,11 @@ suite("MonitorTreeProvider", () => {
         const features = roots.find((r) => r.sectionId === "features");
         assert.ok(features);
         const children = await provider.getChildren(features);
-        // 2 features + 1 pipeline summary = 3
-        assert.ok(children.length >= 3, `Expected >= 3, got ${children.length}`);
+        // 2 features only (pipeline moved to Analysis Pipeline section)
+        assert.strictEqual(children.length, 2, `Expected 2 features, got ${children.length}`);
         const labels = children.map((c) => c.label?.toString() ?? "");
         assert.ok(labels.some((l) => l.includes("Code Lens")));
-        assert.ok(labels.some((l) => l.includes("Pipeline")));
+        assert.ok(labels.some((l) => l.includes("Diagnostics")));
     });
 
     test("root sections include deepIndex and testFeatures", async () => {
@@ -277,6 +283,90 @@ suite("MonitorTreeProvider", () => {
         assert.ok(detailLabels.some((l) => l.includes("Completion") && l.includes("Ready")));
         assert.ok(detailLabels.some((l) => l.includes("Definition") && l.includes("Degraded")));
         assert.ok(detailLabels.some((l) => l.includes("Hover") && l.includes("Unavailable")));
+    });
+
+    test("analysisPipeline section is expanded by default", async () => {
+        const provider = new MonitorTreeProvider(makeTracker());
+        const roots = await provider.getChildren(undefined);
+        const pipeline = roots.find((r) => r.sectionId === "analysisPipeline");
+        assert.ok(pipeline, "Should have analysisPipeline section");
+        assert.strictEqual(
+            pipeline.collapsibleState,
+            1, // vscode.TreeItemCollapsibleState.Expanded
+            "Analysis Pipeline should be expanded"
+        );
+    });
+
+    test("analysisPipeline shows waiting when no data", async () => {
+        const provider = new MonitorTreeProvider(makeTracker());
+        const roots = await provider.getChildren(undefined);
+        const pipeline = roots.find((r) => r.sectionId === "analysisPipeline");
+        assert.ok(pipeline);
+        const children = await provider.getChildren(pipeline);
+        assert.ok(children.length > 0);
+        assert.ok(
+            children[0].label?.toString().includes("Waiting"),
+            "Should show waiting message"
+        );
+    });
+
+    test("analysisPipeline shows tier counts and T3 status when data available", async () => {
+        const provider = new MonitorTreeProvider(
+            makeTracker({
+                pipelineDetail: {
+                    tiers: { t1: 10, t2: 8, t3: 3 },
+                    tier3: {
+                        running: false,
+                        currentFile: null,
+                        fileCount: 3,
+                        succeeded: 2,
+                        failed: 1,
+                        lastFile: "/path/to/quic_server.ivy",
+                        lastCompletedAt: Date.now() / 1000,
+                    },
+                    compilation: { running: false, total: 0, completed: 0, cachedFiles: 5, activeProcesses: 0, maxConcurrent: 4 },
+                    bulk: { running: false, total: 0, completed: 0 },
+                    semanticModel: { nodeCount: 150, edgeCount: 89, ready: true },
+                },
+            })
+        );
+        const roots = await provider.getChildren(undefined);
+        const pipeline = roots.find((r) => r.sectionId === "analysisPipeline");
+        assert.ok(pipeline);
+        const children = await provider.getChildren(pipeline);
+        const labels = children.map((c) => c.label?.toString() ?? "");
+        assert.ok(labels.some((l) => l.includes("T1=10") && l.includes("T2=8") && l.includes("T3=3")));
+        assert.ok(labels.some((l) => l.includes("2 passed") && l.includes("1 failed")));
+        assert.ok(labels.some((l) => l.includes("5 cached")));
+        assert.ok(labels.some((l) => l.includes("150 nodes")));
+    });
+
+    test("analysisPipeline shows T3 running state", async () => {
+        const provider = new MonitorTreeProvider(
+            makeTracker({
+                pipelineDetail: {
+                    tiers: { t1: 5, t2: 3, t3: 1 },
+                    tier3: {
+                        running: true,
+                        currentFile: "/path/to/quic_client.ivy",
+                        fileCount: 1,
+                        succeeded: 1,
+                        failed: 0,
+                        lastFile: null,
+                        lastCompletedAt: null,
+                    },
+                    compilation: { running: false, total: 0, completed: 0, cachedFiles: 0, activeProcesses: 0, maxConcurrent: 4 },
+                    bulk: { running: false, total: 0, completed: 0 },
+                    semanticModel: { nodeCount: 0, edgeCount: 0, ready: false },
+                },
+            })
+        );
+        const roots = await provider.getChildren(undefined);
+        const pipeline = roots.find((r) => r.sectionId === "analysisPipeline");
+        assert.ok(pipeline);
+        const children = await provider.getChildren(pipeline);
+        const labels = children.map((c) => c.label?.toString() ?? "");
+        assert.ok(labels.some((l) => l.includes("Compiling") && l.includes("quic_client.ivy")));
     });
 
     test("recent section shows history entries", async () => {

@@ -50,6 +50,12 @@ const lowCoverageType = vscode.window.createTextEditorDecorationType({
     },
 });
 
+/** Disposables for the decoration types — push into context.subscriptions. */
+export const requirementDecorationTypes: vscode.Disposable[] = [
+    highCoverageType,
+    lowCoverageType,
+];
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------

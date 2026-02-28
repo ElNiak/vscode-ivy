@@ -65,11 +65,20 @@ export interface ActionBoundary {
     };
 }
 
+/** Pagination metadata returned by paginated endpoints. */
+export interface PaginationInfo {
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+}
+
 /** Top-level response for `ivy/actionRequirements`. */
 export interface ActionRequirementsResponse {
     actions: ActionBoundary[];
     scopeInfo: ScopeInfo;
     modelReady: boolean;
+    pagination?: PaginationInfo;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +176,7 @@ export interface CoverageGapsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// ivy/actionDependencyGraph (Phase 5 -- not yet implemented in LSP)
+// ivy/actionDependencyGraph
 // ---------------------------------------------------------------------------
 
 /** A node in the action dependency graph. */
@@ -192,11 +201,12 @@ export interface GraphEdge {
 export interface ActionDependencyGraphResponse {
     nodes: GraphNode[];
     edges: GraphEdge[];
+    truncated?: boolean;
     scopeInfo: ScopeInfo;
 }
 
 // ---------------------------------------------------------------------------
-// ivy/stateMachineView (Phase 5 -- not yet implemented in LSP)
+// ivy/stateMachineView
 // ---------------------------------------------------------------------------
 
 /** A node in the state machine view. */
@@ -220,5 +230,25 @@ export interface StateMachineTransition {
 export interface StateMachineViewResponse {
     nodes: StateMachineNode[];
     transitions: StateMachineTransition[];
+    truncated?: boolean;
+    scopeInfo: ScopeInfo;
+}
+
+// ---------------------------------------------------------------------------
+// ivy/layeredOverview
+// ---------------------------------------------------------------------------
+
+/** A module/file layer grouping symbols, actions, and state vars. */
+export interface LayerGroup {
+    file: string | null;
+    module: string | null;
+    actions: string[];
+    stateVars: string[];
+    requirements: number;
+}
+
+/** Top-level response for `ivy/layeredOverview`. */
+export interface LayeredOverviewResponse {
+    layers: LayerGroup[];
     scopeInfo: ScopeInfo;
 }

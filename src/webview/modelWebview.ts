@@ -91,19 +91,51 @@ function renderSummaryTable(data: {
     tbody.innerHTML = "";
     for (const row of data.rows) {
         const tr = document.createElement("tr");
-        tr.innerHTML = `
-            <td><a href="#" data-file="${row.file}" data-line="${row.line || 0}">${row.actionName}</a></td>
-            <td>${row.direction || "-"}</td>
-            <td>${row.beforeRequireCount}</td>
-            <td>${row.beforeEnsureCount}</td>
-            <td>${row.afterRequireCount}</td>
-            <td>${row.afterEnsureCount}</td>
-            <td>${row.assumeCount}</td>
-            <td>${row.assertCount}</td>
-            <td><strong>${row.totalRequirements}</strong></td>
-            <td>${row.stateVarsRead}/${row.stateVarsWritten}</td>
-            <td>${row.rfcCoverageCount}</td>
-        `;
+
+        const tdAction = document.createElement("td");
+        const link = document.createElement("a");
+        link.href = "#";
+        link.textContent = String(row.actionName);
+        link.dataset.file = String(row.file ?? "");
+        link.dataset.line = String(row.line || 0);
+        link.addEventListener("click", (e) => {
+            e.preventDefault();
+            if (link.dataset.file) {
+                navigateToSource("", link.dataset.file, parseInt(link.dataset.line || "0", 10));
+            }
+        });
+        tdAction.appendChild(link);
+        tr.appendChild(tdAction);
+
+        const cellValues = [
+            row.direction || "-",
+            row.beforeRequireCount,
+            row.beforeEnsureCount,
+            row.afterRequireCount,
+            row.afterEnsureCount,
+            row.assumeCount,
+            row.assertCount,
+        ];
+        for (const val of cellValues) {
+            const td = document.createElement("td");
+            td.textContent = String(val);
+            tr.appendChild(td);
+        }
+
+        const tdTotal = document.createElement("td");
+        const strong = document.createElement("strong");
+        strong.textContent = String(row.totalRequirements);
+        tdTotal.appendChild(strong);
+        tr.appendChild(tdTotal);
+
+        const tdVars = document.createElement("td");
+        tdVars.textContent = `${row.stateVarsRead}/${row.stateVarsWritten}`;
+        tr.appendChild(tdVars);
+
+        const tdRfc = document.createElement("td");
+        tdRfc.textContent = String(row.rfcCoverageCount);
+        tr.appendChild(tdRfc);
+
         tbody.appendChild(tr);
     }
 
@@ -111,60 +143,73 @@ function renderSummaryTable(data: {
     if (data.totals) {
         const tr = document.createElement("tr");
         tr.style.fontWeight = "bold";
-        tr.innerHTML = `
-            <td>Total (${data.totals.actions} actions)</td>
-            <td>-</td>
-            <td colspan="6"></td>
-            <td>${data.totals.requirements}</td>
-            <td>${data.totals.stateVars}</td>
-            <td>${data.totals.rfcTagsCovered}/${data.totals.rfcTagsTotal}</td>
-        `;
+
+        const tdLabel = document.createElement("td");
+        tdLabel.textContent = `Total (${data.totals.actions} actions)`;
+        tr.appendChild(tdLabel);
+
+        const tdDash = document.createElement("td");
+        tdDash.textContent = "-";
+        tr.appendChild(tdDash);
+
+        const tdSpan = document.createElement("td");
+        tdSpan.colSpan = 6;
+        tr.appendChild(tdSpan);
+
+        const tdReqs = document.createElement("td");
+        tdReqs.textContent = String(data.totals.requirements);
+        tr.appendChild(tdReqs);
+
+        const tdVars = document.createElement("td");
+        tdVars.textContent = String(data.totals.stateVars);
+        tr.appendChild(tdVars);
+
+        const tdCov = document.createElement("td");
+        tdCov.textContent = `${data.totals.rfcTagsCovered}/${data.totals.rfcTagsTotal}`;
+        tr.appendChild(tdCov);
+
         tbody.appendChild(tr);
     }
-
-    // Click handler for action names
-    tbody.querySelectorAll("a[data-file]").forEach((a) => {
-        a.addEventListener("click", (e) => {
-            e.preventDefault();
-            const file = (a as HTMLElement).dataset.file;
-            const line = parseInt(
-                (a as HTMLElement).dataset.line || "0",
-                10,
-            );
-            if (file) {
-                navigateToSource("", file, line);
-            }
-        });
-    });
 }
 
 // ---------------------------------------------------------------------------
 // Module layers rendering
 // ---------------------------------------------------------------------------
 
-function renderLayers(data: { actions: any[]; scopeInfo: any }): void {
+interface LayerGroup {
+    file: string | null;
+    module: string | null;
+    actions: string[];
+    stateVars: string[];
+    requirements: number;
+}
+
+function renderLayers(data: {
+    layers: LayerGroup[];
+    scopeInfo: { testFile: string | null; scoped: boolean };
+}): void {
     const container = document.getElementById("layers-container");
     if (!container) return;
-
-    // Group actions by file
-    const byFile = new Map<string, any[]>();
-    for (const action of data.actions) {
-        const file = action.file || "unknown";
-        if (!byFile.has(file)) {
-            byFile.set(file, []);
-        }
-        byFile.get(file)!.push(action);
-    }
-
     container.innerHTML = "";
 
-    for (const [file, actions] of byFile) {
+    if (data.layers.length === 0) {
+        const empty = document.createElement("div");
+        empty.style.padding = "16px";
+        empty.style.opacity = "0.7";
+        empty.textContent = "No module layers available.";
+        container.appendChild(empty);
+        return;
+    }
+
+    for (const layer of data.layers) {
         const section = document.createElement("details");
         section.open = true;
 
         const summary = document.createElement("summary");
-        const shortFile = file.split("/").slice(-2).join("/");
-        summary.textContent = `${shortFile} (${actions.length} actions)`;
+        const label = layer.file
+            ? layer.file.split("/").slice(-2).join("/")
+            : layer.module || "unknown";
+        summary.textContent = `${label} (${layer.actions.length} actions, ${layer.stateVars.length} state vars, ${layer.requirements} reqs)`;
         summary.style.cursor = "pointer";
         summary.style.padding = "4px 8px";
         summary.style.fontWeight = "bold";
@@ -174,44 +219,42 @@ function renderLayers(data: { actions: any[]; scopeInfo: any }): void {
         const list = document.createElement("div");
         list.style.padding = "4px 16px";
 
-        for (const action of actions) {
-            const item = document.createElement("div");
-            item.style.padding = "2px 0";
-            item.style.display = "flex";
-            item.style.justifyContent = "space-between";
+        if (layer.actions.length > 0) {
+            const actionsHeader = document.createElement("div");
+            actionsHeader.style.fontSize = "11px";
+            actionsHeader.style.opacity = "0.7";
+            actionsHeader.style.padding = "4px 0 2px";
+            actionsHeader.textContent = "Actions:";
+            list.appendChild(actionsHeader);
 
-            const nameLink = document.createElement("a");
-            nameLink.href = "#";
-            nameLink.textContent = action.actionName;
-            nameLink.style.color = "var(--vscode-textLink-foreground)";
-            nameLink.addEventListener("click", (e) => {
-                e.preventDefault();
-                navigateToSource(action.actionName, action.file, action.line);
-            });
-
-            const badge = document.createElement("span");
-            const parts: string[] = [];
-            if (action.direction) {
-                parts.push(action.direction);
+            for (const actionName of layer.actions) {
+                const item = document.createElement("div");
+                item.style.padding = "1px 0 1px 8px";
+                item.textContent = actionName;
+                list.appendChild(item);
             }
-            parts.push(`${action.counts.total} reqs`);
-            if (action.rfcTags.length > 0) {
-                parts.push(`${action.rfcTags.length} RFC`);
-            }
-            badge.textContent = parts.join(" | ");
-            badge.style.fontSize = "11px";
-            badge.style.opacity = "0.7";
+        }
 
-            item.appendChild(nameLink);
-            item.appendChild(badge);
-            list.appendChild(item);
+        if (layer.stateVars.length > 0) {
+            const varsHeader = document.createElement("div");
+            varsHeader.style.fontSize = "11px";
+            varsHeader.style.opacity = "0.7";
+            varsHeader.style.padding = "4px 0 2px";
+            varsHeader.textContent = "State Variables:";
+            list.appendChild(varsHeader);
+
+            for (const varName of layer.stateVars) {
+                const item = document.createElement("div");
+                item.style.padding = "1px 0 1px 8px";
+                item.textContent = varName;
+                list.appendChild(item);
+            }
         }
 
         section.appendChild(list);
         container.appendChild(section);
     }
 
-    // Scope info footer
     if (data.scopeInfo && data.scopeInfo.scoped) {
         const footer = document.createElement("div");
         footer.style.padding = "8px";
@@ -265,7 +308,7 @@ window.addEventListener("message", (event) => {
                 renderSummaryTable(msg.data);
             }
             break;
-        case "updateActionRequirements":
+        case "updateLayeredOverview":
             if (msg.data) {
                 renderLayers(msg.data);
             }

@@ -43,6 +43,7 @@ import { RequirementTreeProvider } from "./requirements/requirementTreeProvider"
 import {
     applyRequirementDecorations,
     clearRequirementDecorations,
+    requirementDecorationTypes,
 } from "./requirements/requirementDecorations";
 import { ModelVisualizationPanel, setModelVisibleCallback } from "./visualization/modelVisualizationPanel";
 import { ActivityChannel } from "./activityChannel";
@@ -56,6 +57,10 @@ let modelDataProvider: ModelDataProvider | undefined;
 let reqTreeProvider: RequirementTreeProvider | undefined;
 let activityChannel: ActivityChannel | undefined;
 let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Reused across restarts to avoid leaking output channels. */
+let traceOutputChannel: vscode.OutputChannel | undefined;
+/** Disposable for the window/logMessage notification handler. */
+let logNotificationDisposable: vscode.Disposable | undefined;
 
 /** Tracks which consumers need ModelDataProvider to keep polling. */
 const modelVisibleConsumers = new Set<string>();
@@ -163,6 +168,16 @@ export async function activate(
             }
             await setActiveTestCommand(client);
             await refreshStatusBar(client, testScopeStatusBar);
+            // Sync active test scope to model data provider so
+            // visualization requests include the correct testFile param.
+            try {
+                const resp = await client.sendRequest<{ activeTest: string | null }>(
+                    "ivy/listTests", {}
+                );
+                modelDataProvider?.setActiveTestFile(resp.activeTest);
+            } catch {
+                // Best-effort; server fallback handles the scope too.
+            }
         }),
         vscode.commands.registerCommand("ivy.listTests", async () => {
             if (!client) {
@@ -299,7 +314,7 @@ export async function activate(
             setModelVisible("reqTreeView", e.visible),
         ),
     );
-    context.subscriptions.push(reqTreeView, reqTreeProvider);
+    context.subscriptions.push(reqTreeView, reqTreeProvider, ...requirementDecorationTypes);
 
     // Refresh requirement decorations whenever model data changes.
     context.subscriptions.push(
@@ -453,6 +468,10 @@ class ConfigurableErrorHandler implements ErrorHandler {
         }
 
         this.restarts.push(Date.now());
+        // Trim to only the entries needed for the sliding window check.
+        while (this.restarts.length > this.maxRestartCount + 1) {
+            this.restarts.shift();
+        }
         if (this.restarts.length <= this.maxRestartCount) {
             return { action: CloseAction.Restart };
         }
@@ -666,7 +685,7 @@ async function startWithPython(
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "ivy" }],
         outputChannelName: "Ivy Language Server",
-        traceOutputChannel: vscode.window.createOutputChannel(
+        traceOutputChannel: traceOutputChannel ??= vscode.window.createOutputChannel(
             "Ivy LSP Trace"
         ),
         errorHandler: new ConfigurableErrorHandler(
@@ -697,7 +716,8 @@ async function startWithPython(
 
     // Listen for the server mode notification to set status accurately.
     let modeDetected = false;
-    client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
+    logNotificationDisposable?.dispose();
+    logNotificationDisposable = client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
         // Route to structured activity channel
         activityChannel?.handleLogMessage(params.type, params.message);
 
@@ -763,6 +783,8 @@ async function startWithPython(
 }
 
 async function stopClient(): Promise<void> {
+    logNotificationDisposable?.dispose();
+    logNotificationDisposable = undefined;
     if (client) {
         try {
             const stopMs =
@@ -770,8 +792,8 @@ async function stopClient(): Promise<void> {
                     .getConfiguration("ivy")
                     .get<number>("lsp.stopTimeout", 15) * 1000;
             await client.stop(stopMs);
-        } catch {
-            // Client may already be stopped.
+        } catch (err) {
+            console.debug("[ivy-ext] stopClient error (may be expected):", err);
         }
         client = undefined;
     }

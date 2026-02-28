@@ -80,7 +80,7 @@ export class ActivityChannel implements vscode.Disposable {
     }
 
     private shouldShow(entry: ParsedLogLine): boolean {
-        if (!this.enabledCategories.has(entry.category!)) return false;
+        if (!entry.category || !this.enabledCategories.has(entry.category)) return false;
         // In "phase" granularity, suppress ACT messages (they're per-file detail)
         if (this.granularity === "phase" && entry.category === "ACT") return false;
         return true;

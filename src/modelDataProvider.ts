@@ -14,7 +14,9 @@ import {
     CoverageGapsResponse,
     ActionDependencyGraphResponse,
     StateMachineViewResponse,
+    LayeredOverviewResponse,
 } from "./requirements/requirementTypes";
+import { ModelReadyNotification } from "./monitorTypes";
 
 const POLL_INTERVAL_MS = 30_000;
 /** Longer timeout for the first poll while the server may still be indexing. */
@@ -31,6 +33,8 @@ export class ModelDataProvider implements vscode.Disposable {
     private _client: LanguageClient | null;
     private _refreshing = false;
     private _notificationDisposable: { dispose(): void } | null = null;
+    /** Version counter incremented on each setClient() to invalidate stale modelReady retry timers. */
+    private _clientVersion = 0;
 
     /** Exponential backoff: number of consecutive failures (0 = healthy). */
     private _backoff = 0;
@@ -41,12 +45,16 @@ export class ModelDataProvider implements vscode.Disposable {
     /** Set to true once the first ivy/modelReady notification arrives. */
     private _modelReadyReceived = false;
 
+    /** Active test file for scoped visualization requests. */
+    private _activeTestFile: string | null = null;
+
     /** Cached responses from the LSP server. */
     public actionRequirements: ActionRequirementsResponse | null = null;
     public modelSummary: ModelSummaryResponse | null = null;
     public coverageGaps: CoverageGapsResponse | null = null;
     public dependencyGraph: ActionDependencyGraphResponse | null = null;
     public stateMachine: StateMachineViewResponse | null = null;
+    public layeredOverview: LayeredOverviewResponse | null = null;
 
     private _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
@@ -62,12 +70,14 @@ export class ModelDataProvider implements vscode.Disposable {
         this._stopPolling();
         this._notificationDisposable?.dispose();
         this._notificationDisposable = null;
+        this._clientVersion++;
         this._client = newClient;
         this.actionRequirements = null;
         this.modelSummary = null;
         this.coverageGaps = null;
         this.dependencyGraph = null;
         this.stateMachine = null;
+        this.layeredOverview = null;
         this._backoff = 0;
         this._skipCount = 0;
         this._fastRetries = MAX_FAST_RETRIES;
@@ -75,27 +85,39 @@ export class ModelDataProvider implements vscode.Disposable {
 
         // Listen for server-push readiness notification.
         if (newClient) {
-            this._notificationDisposable = newClient.onNotification("ivy/modelReady", (params: any) => {
-                console.log("[ivy-model] Received ivy/modelReady notification:", params);
-                this._modelReadyReceived = true;
-                this._clearFastRetryTimer();
-                this._fastRetries = MAX_FAST_RETRIES;
-                // The notification may arrive while the client is still
-                // transitioning to Running (state 2).  Poll until ready,
-                // but give up after a bounded number of retries.
-                let readyRetries = 15; // 15 * 200ms = 3s max wait
-                const tryRefresh = () => {
-                    if (this._client && this._client.state === 2 /* Running */) {
-                        this.refreshNow(true);
-                    } else if (readyRetries-- > 0) {
-                        console.log("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
-                        setTimeout(tryRefresh, 200);
-                    } else {
-                        console.warn("[ivy-model] modelReady: gave up waiting for client Running state");
+            const capturedVersion = this._clientVersion;
+            this._notificationDisposable = newClient.onNotification(
+                "ivy/modelReady",
+                (params: ModelReadyNotification) => {
+                    console.log("[ivy-model] Received ivy/modelReady notification:", params);
+                    // Stale notification from a previous client — ignore.
+                    if (this._clientVersion !== capturedVersion) {
+                        return;
                     }
-                };
-                tryRefresh();
-            });
+                    this._modelReadyReceived = true;
+                    this._clearFastRetryTimer();
+                    this._fastRetries = MAX_FAST_RETRIES;
+                    // The notification may arrive while the client is still
+                    // transitioning to Running (state 2).  Poll until ready,
+                    // but give up after a bounded number of retries.
+                    let readyRetries = 15; // 15 * 200ms = 3s max wait
+                    const tryRefresh = () => {
+                        // Bail if client was replaced since the notification.
+                        if (this._clientVersion !== capturedVersion) {
+                            return;
+                        }
+                        if (this._client && this._client.state === 2 /* Running */) {
+                            this.refreshNow(true);
+                        } else if (readyRetries-- > 0) {
+                            console.log("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
+                            setTimeout(tryRefresh, 200);
+                        } else {
+                            console.warn("[ivy-model] modelReady: gave up waiting for client Running state");
+                        }
+                    };
+                    tryRefresh();
+                },
+            );
         }
 
         this._onDidChange.fire();
@@ -112,6 +134,16 @@ export class ModelDataProvider implements vscode.Disposable {
         } else {
             this._stopPolling();
         }
+    }
+
+    /** Update the active test file used to scope visualization requests. */
+    setActiveTestFile(testFile: string | null): void {
+        this._activeTestFile = testFile;
+    }
+
+    /** Build scope params to pass to visualization endpoints. */
+    private _getScopeParams(): Record<string, unknown> | null {
+        return this._activeTestFile ? { testFile: this._activeTestFile } : null;
     }
 
     /** Force an immediate refresh of core cached data.
@@ -152,11 +184,14 @@ export class ModelDataProvider implements vscode.Disposable {
         let anySuccess = false;
 
         try {
+            const scopeParams = this._getScopeParams();
+
             // Sequential requests with small gaps
             try {
                 const actions =
                     await this._sendWithTimeout<ActionRequirementsResponse>(
-                        "ivy/actionRequirements"
+                        "ivy/actionRequirements",
+                        scopeParams,
                     );
                 console.log("[ivy-model] ivy/actionRequirements raw response:",
                     JSON.stringify(actions).substring(0, 2000));
@@ -171,7 +206,8 @@ export class ModelDataProvider implements vscode.Disposable {
             try {
                 const summary =
                     await this._sendWithTimeout<ModelSummaryResponse>(
-                        "ivy/modelSummaryTable"
+                        "ivy/modelSummaryTable",
+                        scopeParams,
                     );
                 this.modelSummary = summary;
                 anySuccess = true;
@@ -183,12 +219,27 @@ export class ModelDataProvider implements vscode.Disposable {
 
             try {
                 const gaps = await this._sendWithTimeout<CoverageGapsResponse>(
-                    "ivy/coverageGaps"
+                    "ivy/coverageGaps",
+                    scopeParams,
                 );
                 this.coverageGaps = gaps;
                 anySuccess = true;
             } catch (err) {
                 console.warn("[ivy-model] ivy/coverageGaps failed:", err);
+            }
+
+            await delay(100);
+
+            try {
+                const layers =
+                    await this._sendWithTimeout<LayeredOverviewResponse>(
+                        "ivy/layeredOverview",
+                        scopeParams,
+                    );
+                this.layeredOverview = layers;
+                anySuccess = true;
+            } catch (err) {
+                console.warn("[ivy-model] ivy/layeredOverview failed:", err);
             }
 
             if (anySuccess) {
@@ -225,12 +276,15 @@ export class ModelDataProvider implements vscode.Disposable {
         if (!this._client || this._client.state !== 2) {
             return;
         }
+        const scopeParams = this._getScopeParams();
         const [depResult, smResult] = await Promise.allSettled([
             this._sendWithTimeout<ActionDependencyGraphResponse>(
-                "ivy/actionDependencyGraph"
+                "ivy/actionDependencyGraph",
+                scopeParams,
             ),
             this._sendWithTimeout<StateMachineViewResponse>(
-                "ivy/stateMachineView"
+                "ivy/stateMachineView",
+                scopeParams,
             ),
         ]);
         if (depResult.status === "fulfilled") {
@@ -250,7 +304,10 @@ export class ModelDataProvider implements vscode.Disposable {
     }
 
     /** Send a request with a timeout to prevent indefinite hangs. */
-    private _sendWithTimeout<T>(method: string): Promise<T> {
+    private _sendWithTimeout<T>(
+        method: string,
+        params?: Record<string, unknown> | null,
+    ): Promise<T> {
         const configuredMs =
             vscode.workspace
                 .getConfiguration("ivy")
@@ -260,11 +317,15 @@ export class ModelDataProvider implements vscode.Disposable {
                 ? Math.max(configuredMs, STARTUP_TIMEOUT_MS)
                 : configuredMs;
         return new Promise<T>((resolve, reject) => {
+            if (!this._client) {
+                reject(new Error(`${method}: client is null`));
+                return;
+            }
             const timer = setTimeout(
                 () => reject(new Error(`${method} timed out after ${timeout}ms`)),
                 timeout,
             );
-            this._client!.sendRequest<T>(method, null).then(
+            this._client.sendRequest<T>(method, params ?? null).then(
                 (result) => { clearTimeout(timer); resolve(result); },
                 (err) => { clearTimeout(timer); reject(err); },
             );

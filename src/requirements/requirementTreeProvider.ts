@@ -20,7 +20,7 @@ import { ActionBoundary, RequirementDetail } from "./requirementTypes";
 type ReqTreeItem = ActionItem | MonitorGroupItem | RequirementItem | MessageItem;
 
 export class RequirementTreeProvider
-    implements vscode.TreeDataProvider<ReqTreeItem>
+    implements vscode.TreeDataProvider<ReqTreeItem>, vscode.Disposable
 {
     private _onDidChangeTreeData = new vscode.EventEmitter<
         ReqTreeItem | undefined | null | void

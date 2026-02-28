@@ -44,4 +44,16 @@ suite("LspStateTracker", () => {
         tracker.setClient(null);
         assert.strictEqual(tracker.featureStatus, null);
     });
+
+    test("initial pipelineDetail is null", () => {
+        const tracker = new LspStateTracker(null as any);
+        assert.strictEqual(tracker.pipelineDetail, null);
+    });
+
+    test("setClient resets pipelineDetail to null", () => {
+        const tracker = new LspStateTracker(null as any);
+        (tracker as any).pipelineDetail = { tiers: { t1: 1, t2: 0, t3: 0 } };
+        tracker.setClient(null);
+        assert.strictEqual(tracker.pipelineDetail, null);
+    });
 });

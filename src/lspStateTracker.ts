@@ -159,7 +159,12 @@ export class LspStateTracker implements vscode.Disposable {
         } catch (err) {
             console.debug("[ivy-tracker] refreshNow failed:", err);
             this.serverStatus = null;
+            this.indexerStats = null;
+            this.operationHistory = null;
             this.featureStatus = null;
+            this.deepIndexProgress = null;
+            this.testFeatureMatrix = null;
+            this.pipelineDetail = null;
             this._onDidChange.fire();
         }
     }
@@ -429,26 +434,38 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        if (this._shouldSkip("progress")) {
-            return;
+        let changed = false;
+        // Poll each endpoint independently so one failure doesn't
+        // suppress the other via shared backoff.
+        if (!this._shouldSkip("deepIndex")) {
+            try {
+                this.deepIndexProgress =
+                    await this._sendWithTimeout<DeepIndexProgress>(
+                        "ivy/deepIndexProgress"
+                    );
+                this._onPollSuccess("deepIndex");
+                this._checkForDeepIndexChanges();
+                changed = true;
+            } catch (err) {
+                console.debug("[ivy-tracker] deepIndex poll failed:", err);
+                this._onPollFailure("deepIndex");
+            }
         }
-        try {
-            const [progress, matrix] = await Promise.all([
-                this._sendWithTimeout<DeepIndexProgress>(
-                    "ivy/deepIndexProgress"
-                ),
-                this._sendWithTimeout<TestFeatureMatrix>(
-                    "ivy/testFeatureMatrix"
-                ),
-            ]);
-            this.deepIndexProgress = progress;
-            this.testFeatureMatrix = matrix;
-            this._onPollSuccess("progress");
-            this._checkForDeepIndexChanges();
+        if (!this._shouldSkip("testMatrix")) {
+            try {
+                this.testFeatureMatrix =
+                    await this._sendWithTimeout<TestFeatureMatrix>(
+                        "ivy/testFeatureMatrix"
+                    );
+                this._onPollSuccess("testMatrix");
+                changed = true;
+            } catch (err) {
+                console.debug("[ivy-tracker] testMatrix poll failed:", err);
+                this._onPollFailure("testMatrix");
+            }
+        }
+        if (changed) {
             this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] progress poll failed:", err);
-            this._onPollFailure("progress");
         }
     }
 

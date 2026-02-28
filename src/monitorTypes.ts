@@ -73,6 +73,12 @@ export interface AnalysisPipelineState {
     tier2FileCount: number;
     tier3FileCount: number;
     tier3Running: boolean;
+    tier3Succeeded: number;
+    tier3Failed: number;
+    tier3Pending: number;
+    tier3CurrentFile: string | null;
+    tier3LastFile: string | null;
+    tier3LastCompletedAt: number | null;
     semanticNodeCount: number;
     semanticEdgeCount: number;
     semanticModelReady: boolean;
@@ -100,7 +106,45 @@ export interface DeepIndexProgress {
     completedTests: number;
     currentFile: string | null;
     startedAt: string | null;
-    fileStatuses: FileIndexStatus[];
+    elapsedSeconds: number | null;
+    fileStatusCount?: number;
+    fileStatuses?: FileIndexStatus[];
+}
+
+export interface Tier3FileResult {
+    file: string;
+    success: boolean;
+    duration: number;
+    error: string | null;
+}
+
+export interface Tier3Detail {
+    running: boolean;
+    currentFile: string | null;
+    fileCount: number;
+    succeeded: number;
+    failed: number;
+    pending: number;
+    lastFile: string | null;
+    lastCompletedAt: number | null;
+    results?: Tier3FileResult[];
+}
+
+export interface CompilationStatus {
+    running: boolean;
+    total: number;
+    completed: number;
+    cachedFiles: number;
+    activeProcesses: number;
+    maxConcurrent: number;
+}
+
+export interface AnalysisPipelineDetail {
+    tiers: { t1: number; t2: number; t3: number };
+    tier3: Tier3Detail;
+    compilation: CompilationStatus;
+    bulk: { running: boolean; total: number; completed: number };
+    semanticModel: { nodeCount: number; edgeCount: number; ready: boolean };
 }
 
 export interface TestFeatureEntry {
@@ -110,4 +154,10 @@ export interface TestFeatureEntry {
 
 export interface TestFeatureMatrix {
     tests: TestFeatureEntry[];
+}
+
+/** Payload of the `ivy/modelReady` server notification. */
+export interface ModelReadyNotification {
+    actionCount: number;
+    requirementCount: number;
 }

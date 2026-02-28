@@ -8,6 +8,14 @@
 import * as vscode from "vscode";
 import { ModelDataProvider } from "../modelDataProvider";
 
+/** Callback to manage reference-counted visibility (set by extension.ts). */
+let _setModelVisible: (consumerId: string, visible: boolean) => void = (_, v) => {};
+
+/** Called from extension.ts to inject the visibility management function. */
+export function setModelVisibleCallback(cb: (consumerId: string, visible: boolean) => void): void {
+    _setModelVisible = cb;
+}
+
 export class ModelVisualizationPanel {
     private static _instance: ModelVisualizationPanel | undefined;
 
@@ -63,9 +71,9 @@ export class ModelVisualizationPanel {
             this._disposables,
         );
 
-        // Track visibility for polling
+        // Track visibility for polling via reference counting
         this._panel.onDidChangeViewState(
-            (e) => provider.setVisible(e.webviewPanel.visible),
+            (e) => _setModelVisible("visualizationPanel", e.webviewPanel.visible),
             undefined,
             this._disposables,
         );
@@ -74,7 +82,7 @@ export class ModelVisualizationPanel {
         this._panel.onDidDispose(
             () => {
                 ModelVisualizationPanel._instance = undefined;
-                provider.setVisible(false);
+                _setModelVisible("visualizationPanel", false);
                 for (const d of this._disposables) {
                     d.dispose();
                 }
@@ -112,7 +120,7 @@ export class ModelVisualizationPanel {
             provider,
         );
 
-        provider.setVisible(true);
+        _setModelVisible("visualizationPanel", true);
     }
 
     private _sendData(provider: ModelDataProvider): void {
@@ -145,6 +153,12 @@ export class ModelVisualizationPanel {
             webview.postMessage({
                 type: "updateCoverageGaps",
                 data: provider.coverageGaps,
+            });
+        }
+        if (provider.layeredOverview) {
+            webview.postMessage({
+                type: "updateLayeredOverview",
+                data: provider.layeredOverview,
             });
         }
     }
