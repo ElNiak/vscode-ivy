@@ -25,10 +25,12 @@ export class DashboardPanel {
         DashboardPanel._panel = panel;
 
         const instance = new DashboardPanel(panel, tracker);
-        panel.onDidDispose(() => {
-            DashboardPanel._panel = undefined;
-            instance.dispose();
-        });
+        instance._disposables.push(
+            panel.onDidDispose(() => {
+                DashboardPanel._panel = undefined;
+                instance.dispose();
+            })
+        );
     }
 
     private constructor(

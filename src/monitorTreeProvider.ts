@@ -2,6 +2,7 @@
 
 import * as vscode from "vscode";
 import { LspStateTracker } from "./lspStateTracker";
+import { formatDuration } from "./utils";
 
 /** A tree item with a section identifier for child resolution. */
 export class MonitorItem extends vscode.TreeItem {
@@ -19,19 +20,26 @@ export class MonitorItem extends vscode.TreeItem {
 }
 
 export class MonitorTreeProvider
-    implements vscode.TreeDataProvider<MonitorItem>
+    implements vscode.TreeDataProvider<MonitorItem>, vscode.Disposable
 {
     private _onDidChangeTreeData = new vscode.EventEmitter<
         MonitorItem | undefined
     >();
     readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
+    private readonly _trackerSubscription: vscode.Disposable;
+
     constructor(private readonly tracker: LspStateTracker) {
-        tracker.onDidChange(() => this.refresh());
+        this._trackerSubscription = tracker.onDidChange(() => this.refresh());
     }
 
     refresh(): void {
         this._onDidChangeTreeData.fire(undefined);
+    }
+
+    dispose(): void {
+        this._trackerSubscription.dispose();
+        this._onDidChangeTreeData.dispose();
     }
 
     getTreeItem(element: MonitorItem): vscode.TreeItem {
@@ -47,6 +55,10 @@ export class MonitorTreeProvider
                 return this._getServerChildren();
             case "indexing":
                 return this._getIndexingChildren();
+            case "analysisPipeline":
+                return this._getAnalysisPipelineChildren();
+            case "pipelineT3":
+                return this._getPipelineT3Children();
             case "features":
                 return this._getFeaturesChildren();
             case "operations":
@@ -78,6 +90,11 @@ export class MonitorTreeProvider
             new MonitorItem(
                 "Indexing",
                 "indexing",
+                vscode.TreeItemCollapsibleState.Expanded
+            ),
+            new MonitorItem(
+                "Analysis Pipeline",
+                "analysisPipeline",
                 vscode.TreeItemCollapsibleState.Expanded
             ),
             new MonitorItem(
@@ -285,6 +302,128 @@ export class MonitorTreeProvider
         ];
     }
 
+    private _getAnalysisPipelineChildren(): MonitorItem[] {
+        const pd = this.tracker.pipelineDetail;
+        if (!pd) {
+            const item = new MonitorItem("Waiting for server...", "pipelineItem");
+            item.iconPath = new vscode.ThemeIcon("loading~spin");
+            return [item];
+        }
+
+        const items: MonitorItem[] = [];
+
+        // Tier counts
+        const tierItem = new MonitorItem(
+            `Tiers: T1=${pd.tiers.t1}  T2=${pd.tiers.t2}  T3=${pd.tiers.t3}`,
+            "pipelineItem"
+        );
+        tierItem.iconPath = new vscode.ThemeIcon("layers");
+        items.push(tierItem);
+
+        // T3 status
+        const t3 = pd.tier3;
+        if (t3.running && t3.currentFile) {
+            const t3Item = new MonitorItem(
+                `T3: Compiling ${basename(t3.currentFile)}`,
+                "pipelineItem"
+            );
+            t3Item.iconPath = new vscode.ThemeIcon("sync~spin");
+            items.push(t3Item);
+        } else if (t3.fileCount > 0) {
+            const agoStr = t3.lastCompletedAt
+                ? timeAgo(new Date(t3.lastCompletedAt * 1000).toISOString())
+                : "";
+            const label = t3.failed > 0
+                ? `T3: ${t3.succeeded} passed, ${t3.failed} failed${agoStr ? ` (${agoStr})` : ""}`
+                : `T3: ${t3.succeeded} passed${agoStr ? ` (${agoStr})` : ""}`;
+            const t3Item = new MonitorItem(
+                label,
+                "pipelineT3",
+                vscode.TreeItemCollapsibleState.Collapsed
+            );
+            t3Item.iconPath = new vscode.ThemeIcon(
+                t3.failed > 0 ? "warning" : "pass"
+            );
+            items.push(t3Item);
+        } else {
+            const t3Item = new MonitorItem("T3: No results yet", "pipelineItem");
+            t3Item.iconPath = new vscode.ThemeIcon("circle-outline");
+            items.push(t3Item);
+        }
+
+        // Bulk T1+T2 progress
+        if (pd.bulk.running) {
+            const pct = pd.bulk.total > 0
+                ? Math.round((pd.bulk.completed / pd.bulk.total) * 100)
+                : 0;
+            const bulkItem = new MonitorItem(
+                `Bulk T1+T2: ${pd.bulk.completed}/${pd.bulk.total} (${pct}%)`,
+                "pipelineItem"
+            );
+            bulkItem.iconPath = new vscode.ThemeIcon("sync~spin");
+            items.push(bulkItem);
+        }
+
+        // Compilation status
+        const comp = pd.compilation;
+        if (comp.running) {
+            const pct = comp.total > 0
+                ? Math.round((comp.completed / comp.total) * 100)
+                : 0;
+            const compItem = new MonitorItem(
+                `Compilation: ${comp.completed}/${comp.total} (${pct}%)`,
+                "pipelineItem"
+            );
+            compItem.iconPath = new vscode.ThemeIcon("sync~spin");
+            items.push(compItem);
+        } else if (comp.cachedFiles > 0) {
+            const compItem = new MonitorItem(
+                `Compilation: ${comp.cachedFiles} cached`,
+                "pipelineItem"
+            );
+            compItem.iconPath = new vscode.ThemeIcon("archive");
+            items.push(compItem);
+        }
+
+        // Semantic model
+        const sm = pd.semanticModel;
+        if (sm.ready) {
+            const smItem = new MonitorItem(
+                `Semantic: ${sm.nodeCount} nodes, ${sm.edgeCount} edges`,
+                "pipelineItem"
+            );
+            smItem.iconPath = new vscode.ThemeIcon("database");
+            items.push(smItem);
+        }
+
+        return items;
+    }
+
+    private _getPipelineT3Children(): MonitorItem[] {
+        // Use the T3 data from featureStatus pipeline state for per-file detail
+        const ps = this.tracker.featureStatus?.analysisPipeline;
+        if (!ps) {
+            return [];
+        }
+        // Per-file results are not yet available in the polled data
+        // (would require includeFileResults=true). Show summary info instead.
+        const pd = this.tracker.pipelineDetail;
+        if (!pd || !pd.tier3.lastFile) {
+            return [];
+        }
+        const items: MonitorItem[] = [];
+        // Show last completed file as a representative entry
+        if (pd.tier3.lastFile) {
+            const lastItem = new MonitorItem(
+                `Last: ${basename(pd.tier3.lastFile)}`,
+                "pipelineT3Item"
+            );
+            lastItem.iconPath = new vscode.ThemeIcon("history");
+            items.push(lastItem);
+        }
+        return items;
+    }
+
     private _getFeaturesChildren(): MonitorItem[] {
         const fs = this.tracker.featureStatus;
         if (!fs) {
@@ -304,40 +443,6 @@ export class MonitorTreeProvider
                 item.description = `depends on: ${f.dependsOn.join(", ")}`;
             }
             items.push(item);
-        }
-
-        // Pipeline summary item
-        const ps = fs.analysisPipeline;
-        const pipelineLabel = ps.tier3Running
-            ? "Pipeline: T3 running..."
-            : ps.semanticModelReady
-              ? `Pipeline: ${ps.semanticNodeCount} nodes`
-              : "Pipeline: No data";
-        const pipelineItem = new MonitorItem(pipelineLabel, "featureItem");
-        pipelineItem.iconPath = new vscode.ThemeIcon(
-            ps.tier3Running
-                ? "sync~spin"
-                : ps.semanticModelReady
-                  ? "database"
-                  : "circle-slash"
-        );
-        pipelineItem.tooltip =
-            `T1: ${ps.tier1FileCount} files | ` +
-            `T2: ${ps.tier2FileCount} files | ` +
-            `T3: ${ps.tier3FileCount} files`;
-        items.push(pipelineItem);
-
-        // Bulk analysis indicator
-        if (ps.bulkAnalysisRunning) {
-            const pct = ps.bulkAnalysisTotal > 0
-                ? Math.round((ps.bulkAnalysisCompleted / ps.bulkAnalysisTotal) * 100)
-                : 0;
-            const bulkItem = new MonitorItem(
-                `Bulk Analysis: ${ps.bulkAnalysisCompleted}/${ps.bulkAnalysisTotal} (${pct}%)`,
-                "featureItem"
-            );
-            bulkItem.iconPath = new vscode.ThemeIcon("sync~spin");
-            items.push(bulkItem);
         }
 
         return items;
@@ -383,7 +488,7 @@ export class MonitorTreeProvider
         }
 
         // Per-file statuses
-        for (const fs of p.fileStatuses) {
+        for (const fs of p.fileStatuses ?? []) {
             const icon = fs.deepParseSucceeded
                 ? "pass"
                 : fs.deepParseAttempted
@@ -471,16 +576,6 @@ export class MonitorTreeProvider
 }
 
 // --- Helpers ---
-
-function formatDuration(seconds: number): string {
-    if (seconds < 60) {
-        return `${Math.floor(seconds)}s`;
-    }
-    if (seconds < 3600) {
-        return `${Math.floor(seconds / 60)}m ${Math.floor(seconds % 60)}s`;
-    }
-    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
-}
 
 function timeAgo(isoTime: string): string {
     const diff = (Date.now() - new Date(isoTime).getTime()) / 1000;

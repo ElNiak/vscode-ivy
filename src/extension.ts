@@ -44,7 +44,7 @@ import {
     applyRequirementDecorations,
     clearRequirementDecorations,
 } from "./requirements/requirementDecorations";
-import { ModelVisualizationPanel } from "./visualization/modelVisualizationPanel";
+import { ModelVisualizationPanel, setModelVisibleCallback } from "./visualization/modelVisualizationPanel";
 import { ActivityChannel } from "./activityChannel";
 
 let client: LanguageClient | undefined;
@@ -55,6 +55,19 @@ let treeProvider: MonitorTreeProvider | undefined;
 let modelDataProvider: ModelDataProvider | undefined;
 let reqTreeProvider: RequirementTreeProvider | undefined;
 let activityChannel: ActivityChannel | undefined;
+let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Tracks which consumers need ModelDataProvider to keep polling. */
+const modelVisibleConsumers = new Set<string>();
+
+function setModelVisible(consumerId: string, visible: boolean): void {
+    if (visible) {
+        modelVisibleConsumers.add(consumerId);
+    } else {
+        modelVisibleConsumers.delete(consumerId);
+    }
+    modelDataProvider?.setVisible(modelVisibleConsumers.size > 0);
+}
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -260,10 +273,12 @@ export async function activate(
         treeDataProvider: treeProvider,
         showCollapseAll: true,
     });
-    treeView.onDidChangeVisibility((e) =>
-        stateTracker?.setVisible(e.visible)
+    context.subscriptions.push(
+        treeView.onDidChangeVisibility((e) =>
+            stateTracker?.setVisible(e.visible)
+        ),
     );
-    context.subscriptions.push(treeView, stateTracker);
+    context.subscriptions.push(treeView, treeProvider, stateTracker);
 
     activityChannel = new ActivityChannel();
     context.subscriptions.push(activityChannel);
@@ -271,6 +286,7 @@ export async function activate(
     // Set up model data provider for visualization features.
     modelDataProvider = new ModelDataProvider(null);
     context.subscriptions.push(modelDataProvider);
+    setModelVisibleCallback(setModelVisible);
 
     // Set up requirements tree view.
     reqTreeProvider = new RequirementTreeProvider(modelDataProvider);
@@ -278,8 +294,10 @@ export async function activate(
         treeDataProvider: reqTreeProvider,
         showCollapseAll: true,
     });
-    reqTreeView.onDidChangeVisibility((e) =>
-        modelDataProvider?.setVisible(e.visible),
+    context.subscriptions.push(
+        reqTreeView.onDidChangeVisibility((e) =>
+            setModelVisible("reqTreeView", e.visible),
+        ),
     );
     context.subscriptions.push(reqTreeView, reqTreeProvider);
 
@@ -372,7 +390,6 @@ export async function activate(
 
     // Auto-detect test scope on editor focus change (debounced to avoid
     // flooding the server with ivy/listTests requests when switching tabs).
-    let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editorChangeTimer) {
@@ -394,14 +411,14 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
-    stateTracker?.dispose();
-    stateTracker = undefined;
-    reqTreeProvider?.dispose();
-    reqTreeProvider = undefined;
-    modelDataProvider?.dispose();
-    modelDataProvider = undefined;
-    activityChannel?.dispose();
-    activityChannel = undefined;
+    // Clear the debounce timer for editor changes.
+    if (editorChangeTimer) {
+        clearTimeout(editorChangeTimer);
+        editorChangeTimer = undefined;
+    }
+    // All disposable objects are already in context.subscriptions,
+    // which VS Code disposes automatically. Just stop the LSP client.
+    modelVisibleConsumers.clear();
     await stopClient();
 }
 
@@ -684,6 +701,18 @@ async function startWithPython(
         // Route to structured activity channel
         activityChannel?.handleLogMessage(params.type, params.message);
 
+        // Reproduce the built-in handler behavior that this registration
+        // replaced: write to the "Ivy Language Server" output channel.
+        if (client) {
+            const now = new Date().toLocaleTimeString();
+            const label = params.type === 1 ? "Error"
+                : params.type === 2 ? "Warn"
+                : params.type === 3 ? "Info" : "Log";
+            client.outputChannel.appendLine(
+                `[${label.padEnd(5)} - ${now}] ${params.message}`
+            );
+        }
+
         if (!modeDetected && params.message.includes("Ivy LSP running in")) {
             modeDetected = true;
             if (params.message.includes("light mode")) {
@@ -712,7 +741,6 @@ async function startWithPython(
         console.log("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
         stateTracker?.setClient(client);
         modelDataProvider?.setClient(client);
-        modelDataProvider?.setVisible(true);
         console.log("[ivy-ext] setClient + setVisible done");
 
         // Refresh test scope status bar after successful start.

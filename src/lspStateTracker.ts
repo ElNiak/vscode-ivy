@@ -251,11 +251,15 @@ export class LspStateTracker implements vscode.Disposable {
     /** Send a request with a timeout to prevent indefinite hangs. */
     private _sendWithTimeout<T>(method: string): Promise<T> {
         return new Promise<T>((resolve, reject) => {
+            if (!this.client) {
+                reject(new Error(`${method}: client is null`));
+                return;
+            }
             const timer = setTimeout(
                 () => reject(new Error(`${method} timed out`)),
                 POLL_TIMEOUT_MS,
             );
-            this.client!.sendRequest<T>(method, null).then(
+            this.client.sendRequest<T>(method, null).then(
                 (result) => { clearTimeout(timer); resolve(result); },
                 (err) => { clearTimeout(timer); reject(err); },
             );
