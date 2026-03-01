@@ -192,15 +192,25 @@ export async function activate(
             stateTracker?.refreshNow()
         ),
         vscode.commands.registerCommand("ivy.reindexWorkspace", async () => {
-            const result = await stateTracker?.sendReindex();
-            if (result) {
-                vscode.window.showInformationMessage(result.message);
+            try {
+                const result = await stateTracker?.sendReindex();
+                if (result) {
+                    vscode.window.showInformationMessage(result.message);
+                }
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Ivy: Re-index failed \u2014 ${detail}`);
             }
         }),
         vscode.commands.registerCommand("ivy.clearCache", async () => {
-            const result = await stateTracker?.sendClearCache();
-            if (result) {
-                vscode.window.showInformationMessage(result.message);
+            try {
+                const result = await stateTracker?.sendClearCache();
+                if (result) {
+                    vscode.window.showInformationMessage(result.message);
+                }
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Ivy: Clear cache failed \u2014 ${detail}`);
             }
         }),
         vscode.commands.registerCommand("ivy.editIncludePaths", () => {
@@ -431,8 +441,8 @@ export async function activate(
                         modelDataProvider.setActiveTestFile(resp.activeTest);
                         await modelDataProvider.refreshNow(true);
                     }
-                } catch {
-                    // Best-effort sync
+                } catch (err) {
+                    console.debug("[ivy-ext] Best-effort test scope sync failed:", err);
                 }
             }, 500);
         })
