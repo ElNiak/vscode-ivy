@@ -7,6 +7,7 @@ import { formatDuration } from "./utils";
 export class DashboardPanel {
     private static _panel: vscode.WebviewPanel | undefined;
     private _disposables: vscode.Disposable[] = [];
+    private _disposed = false;
 
     static show(
         context: vscode.ExtensionContext,
@@ -47,6 +48,7 @@ export class DashboardPanel {
     }
 
     private _update(): void {
+        if (this._disposed) { return; }
         this.panel.webview.html = this._getHtml();
     }
 
@@ -318,7 +320,10 @@ export class DashboardPanel {
     }
 
     dispose(): void {
-        this._disposables.forEach((d) => d.dispose());
+        this._disposed = true;
+        DashboardPanel._panel = undefined;
+        const toDispose = this._disposables.splice(0);
+        toDispose.forEach((d) => d.dispose());
     }
 }
 
