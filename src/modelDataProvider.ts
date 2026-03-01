@@ -44,6 +44,10 @@ export class ModelDataProvider implements vscode.Disposable {
     private _fastRetries = MAX_FAST_RETRIES;
     /** Set to true once the first ivy/modelReady notification arrives. */
     private _modelReadyReceived = false;
+    /** Handle for the 90-second safety fallback timer, so it can be cancelled on dispose. */
+    private _safetyTimer: ReturnType<typeof setTimeout> | null = null;
+    /** Set to true once dispose() is called; prevents stale callbacks from firing. */
+    private _disposed = false;
 
     /** Active test file for scoped visualization requests. */
     private _activeTestFile: string | null = null;
@@ -65,6 +69,11 @@ export class ModelDataProvider implements vscode.Disposable {
 
     /** Update the underlying client (e.g. after restart). Resets cached state. */
     setClient(newClient: LanguageClient | null): void {
+        // Cancel any pending safety timer from a previous client.
+        if (this._safetyTimer) {
+            clearTimeout(this._safetyTimer);
+            this._safetyTimer = null;
+        }
         console.log("[ivy-model] setClient called, client =", newClient ? "present" : "null",
             ", visible =", this._visible, ", state =", newClient?.state);
         this._stopPolling();
@@ -124,7 +133,8 @@ export class ModelDataProvider implements vscode.Disposable {
         // try a forced refresh anyway.
         if (newClient) {
             const capturedVersion = this._clientVersion;
-            setTimeout(() => {
+            this._safetyTimer = setTimeout(() => {
+                this._safetyTimer = null;
                 if (this._clientVersion === capturedVersion && !this._modelReadyReceived) {
                     console.warn("[ivy-model] No ivy/modelReady after 90s, forcing refresh");
                     this._modelReadyReceived = true;
@@ -168,6 +178,7 @@ export class ModelDataProvider implements vscode.Disposable {
      * is still indexing.
      */
     async refreshNow(force = false): Promise<void> {
+        if (this._disposed) { return; }
         console.log("[ivy-model] refreshNow called: force =", force,
             ", client =", this._client ? "present" : "null",
             ", state =", this._client?.state,
@@ -386,9 +397,14 @@ export class ModelDataProvider implements vscode.Disposable {
             this._timer = null;
         }
         this._clearFastRetryTimer();
+        if (this._safetyTimer) {
+            clearTimeout(this._safetyTimer);
+            this._safetyTimer = null;
+        }
     }
 
     dispose(): void {
+        this._disposed = true;
         this._stopPolling();
         this._notificationDisposable?.dispose();
         this._notificationDisposable = null;
