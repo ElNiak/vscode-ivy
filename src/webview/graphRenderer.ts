@@ -30,7 +30,7 @@ interface GraphEdge {
     source: string;
     target: string;
     label?: string;
-    type: "reads" | "writes" | "monitors" | "shared_state";
+    type: "reads" | "writes" | "shared_state";
 }
 
 interface DependencyGraphData {
