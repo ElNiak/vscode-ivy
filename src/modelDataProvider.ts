@@ -74,7 +74,7 @@ export class ModelDataProvider implements vscode.Disposable {
             clearTimeout(this._safetyTimer);
             this._safetyTimer = null;
         }
-        console.log("[ivy-model] setClient called, client =", newClient ? "present" : "null",
+        console.debug("[ivy-model] setClient called, client =", newClient ? "present" : "null",
             ", visible =", this._visible, ", state =", newClient?.state);
         this._stopPolling();
         this._notificationDisposable?.dispose();
@@ -98,7 +98,7 @@ export class ModelDataProvider implements vscode.Disposable {
             this._notificationDisposable = newClient.onNotification(
                 "ivy/modelReady",
                 (params: ModelReadyNotification) => {
-                    console.log("[ivy-model] Received ivy/modelReady notification:", params);
+                    console.debug("[ivy-model] Received ivy/modelReady notification:", params);
                     // Stale notification from a previous client — ignore.
                     if (this._clientVersion !== capturedVersion) {
                         return;
@@ -118,7 +118,7 @@ export class ModelDataProvider implements vscode.Disposable {
                         if (this._client && this._client.state === 2 /* Running */) {
                             this.refreshNow(true);
                         } else if (readyRetries-- > 0) {
-                            console.log("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
+                            console.debug("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
                             setTimeout(tryRefresh, 200);
                         } else {
                             console.warn("[ivy-model] modelReady: gave up waiting for client Running state");
@@ -179,18 +179,18 @@ export class ModelDataProvider implements vscode.Disposable {
      */
     async refreshNow(force = false): Promise<void> {
         if (this._disposed) { return; }
-        console.log("[ivy-model] refreshNow called: force =", force,
+        console.debug("[ivy-model] refreshNow called: force =", force,
             ", client =", this._client ? "present" : "null",
             ", state =", this._client?.state,
             ", modelReadyReceived =", this._modelReadyReceived);
         if (!this._client || this._client.state !== 2 /* Running */) {
-            console.log("[ivy-model] refreshNow: client not ready, state =", this._client?.state);
+            console.debug("[ivy-model] refreshNow: client not ready, state =", this._client?.state);
             return;
         }
         // Skip polling until the server signals readiness (unless forced
         // by a modelReady notification handler or explicit user action).
         if (!force && !this._modelReadyReceived) {
-            console.log("[ivy-model] refreshNow: waiting for modelReady notification");
+            console.debug("[ivy-model] refreshNow: waiting for modelReady notification");
             return;
         }
         if (!force && this._shouldSkip()) {
@@ -217,8 +217,6 @@ export class ModelDataProvider implements vscode.Disposable {
                         "ivy/actionRequirements",
                         scopeParams,
                     );
-                console.log("[ivy-model] ivy/actionRequirements raw response:",
-                    JSON.stringify(actions).substring(0, 2000));
                 this.actionRequirements = actions;
                 anySuccess = true;
             } catch (err) {
@@ -275,7 +273,7 @@ export class ModelDataProvider implements vscode.Disposable {
             // Log the state for debugging.
             const modelReady = this.actionRequirements?.modelReady ?? null;
             const actionCount = this.actionRequirements?.actions?.length ?? 0;
-            console.log(
+            console.debug(
                 `[ivy-model] refreshNow: modelReady=${modelReady}, actions=${actionCount}, fastRetries=${this._fastRetries}`
             );
 
@@ -312,7 +310,7 @@ export class ModelDataProvider implements vscode.Disposable {
                     scopeParams,
                 );
         } catch (err) {
-            console.warn("ivy/actionDependencyGraph failed:", err);
+            console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
         }
         try {
             this.stateMachine =
@@ -321,7 +319,7 @@ export class ModelDataProvider implements vscode.Disposable {
                     scopeParams,
                 );
         } catch (err) {
-            console.warn("ivy/stateMachineView failed:", err);
+            console.warn("[ivy-model] ivy/stateMachineView failed:", err);
         }
         this._onDidChange.fire();
     }

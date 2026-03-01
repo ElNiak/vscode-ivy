@@ -778,9 +778,9 @@ async function startWithPython(
     });
 
     try {
-        console.log("[ivy-ext] calling client.start()...");
+        console.debug("[ivy-ext] calling client.start()...");
         await client.start();
-        console.log("[ivy-ext] client.start() resolved, state =", client.state);
+        console.debug("[ivy-ext] client.start() resolved, state =", client.state);
         // Default to running-full until we hear from the server.
         if (!modeDetected) {
             setStatus("running-full", version);
@@ -788,10 +788,10 @@ async function startWithPython(
 
         // Register model/monitor clients IMMEDIATELY — before any await
         // that could allow ivy/modelReady to arrive without a handler.
-        console.log("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
+        console.debug("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
         stateTracker?.setClient(client);
         modelDataProvider?.setClient(client);
-        console.log("[ivy-ext] setClient + setVisible done");
+        console.debug("[ivy-ext] setClient + setVisible done");
 
         // Refresh test scope status bar after successful start.
         const tsScopeEnabled = vscode.workspace
