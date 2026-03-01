@@ -26,6 +26,10 @@ const STARTUP_TIMEOUT_MS = 60_000;
 const FAST_RETRY_MS = 3_000;
 /** Max number of fast retries before falling back to normal interval. */
 const MAX_FAST_RETRIES = 10;
+/** Slower retry interval (ms) used after fast retries are exhausted. */
+const SLOW_RETRY_MS = 30_000;
+/** After this many slow retries without modelReady, show a warning (5 min). */
+const MAX_SLOW_RETRIES_BEFORE_WARNING = 10;
 
 export class ModelDataProvider implements vscode.Disposable {
     private _timer: ReturnType<typeof setInterval> | null = null;
@@ -45,6 +49,10 @@ export class ModelDataProvider implements vscode.Disposable {
     private _fastRetries = MAX_FAST_RETRIES;
     /** Set to true once the first ivy/modelReady notification arrives. */
     private _modelReadyReceived = false;
+    /** Slow retry counter: incremented after fast retries exhausted. */
+    private _slowRetries = 0;
+    /** True after a "model not ready" warning has been shown, to avoid spam. */
+    private _modelNotReadyWarningShown = false;
     /** Handle for the 90-second safety fallback timer, so it can be cancelled on dispose. */
     private _safetyTimer: ReturnType<typeof setTimeout> | null = null;
     /** Set to true once dispose() is called; prevents stale callbacks from firing. */
@@ -52,6 +60,9 @@ export class ModelDataProvider implements vscode.Disposable {
 
     /** Active test file for scoped visualization requests. */
     private _activeTestFile: string | null = null;
+
+    /** Per-endpoint error state so UI consumers can show warning indicators. */
+    public readonly endpointErrors = new Map<string, string>();
 
     /** Cached responses from the LSP server. */
     public actionRequirements: ActionRequirementsResponse | null = null;
@@ -91,9 +102,12 @@ export class ModelDataProvider implements vscode.Disposable {
         this.dependencyGraph = null;
         this.stateMachine = null;
         this.layeredOverview = null;
+        this.endpointErrors.clear();
         this._backoff = 0;
         this._skipCount = 0;
         this._fastRetries = MAX_FAST_RETRIES;
+        this._slowRetries = 0;
+        this._modelNotReadyWarningShown = false;
         this._modelReadyReceived = false;
 
         // Listen for server-push readiness notification.
@@ -222,10 +236,18 @@ export class ModelDataProvider implements vscode.Disposable {
                             "ivy/actionRequirements",
                             scopeParams,
                         );
-                    this.actionRequirements = actions;
-                    anySuccess = true;
+                    // Basic shape validation to catch malformed responses.
+                    if (actions && typeof actions === "object" && "modelReady" in actions) {
+                        this.actionRequirements = actions;
+                        this.endpointErrors.delete("actionRequirements");
+                        anySuccess = true;
+                    } else {
+                        console.warn("[ivy-model] ivy/actionRequirements: unexpected shape", actions);
+                        this.endpointErrors.set("actionRequirements", "Malformed response");
+                    }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/actionRequirements failed:", err);
+                    this.endpointErrors.set("actionRequirements", String(err));
                 }
 
                 await delay(250);
@@ -237,9 +259,11 @@ export class ModelDataProvider implements vscode.Disposable {
                             scopeParams,
                         );
                     this.modelSummary = summary;
+                    this.endpointErrors.delete("modelSummary");
                     anySuccess = true;
                 } catch (err) {
                     console.warn("[ivy-model] ivy/modelSummaryTable failed:", err);
+                    this.endpointErrors.set("modelSummary", String(err));
                 }
 
                 await delay(250);
@@ -250,9 +274,11 @@ export class ModelDataProvider implements vscode.Disposable {
                         scopeParams,
                     );
                     this.coverageGaps = gaps;
+                    this.endpointErrors.delete("coverageGaps");
                     anySuccess = true;
                 } catch (err) {
                     console.warn("[ivy-model] ivy/coverageGaps failed:", err);
+                    this.endpointErrors.set("coverageGaps", String(err));
                 }
 
                 await delay(250);
@@ -264,9 +290,11 @@ export class ModelDataProvider implements vscode.Disposable {
                             scopeParams,
                         );
                     this.layeredOverview = layers;
+                    this.endpointErrors.delete("layeredOverview");
                     anySuccess = true;
                 } catch (err) {
                     console.warn("[ivy-model] ivy/layeredOverview failed:", err);
+                    this.endpointErrors.set("layeredOverview", String(err));
                 }
 
                 if (anySuccess) {
@@ -282,14 +310,34 @@ export class ModelDataProvider implements vscode.Disposable {
                     `[ivy-model] refreshNow: modelReady=${modelReady}, actions=${actionCount}, fastRetries=${this._fastRetries}`
                 );
 
-                // If the model isn't ready yet, schedule a fast retry instead of
-                // waiting the full 30-second interval.
+                // If the model isn't ready yet, schedule retries to avoid
+                // the UI getting stuck on "Indexing..." forever.
                 this._clearFastRetryTimer();
                 if (!modelReady && this._fastRetries > 0) {
                     this._fastRetries--;
                     this._fastRetryTimer = setTimeout(() => this.refreshNow(true), FAST_RETRY_MS);
+                } else if (!modelReady && this._fastRetries <= 0) {
+                    // Fast retries exhausted — fall back to slower retries
+                    // instead of stopping entirely.
+                    this._slowRetries++;
+                    if (
+                        this._slowRetries >= MAX_SLOW_RETRIES_BEFORE_WARNING &&
+                        !this._modelNotReadyWarningShown
+                    ) {
+                        this._modelNotReadyWarningShown = true;
+                        console.warn(
+                            "[ivy-model] Model still not ready after",
+                            MAX_FAST_RETRIES, "fast +",
+                            this._slowRetries, "slow retries",
+                        );
+                    }
+                    this._fastRetryTimer = setTimeout(
+                        () => this.refreshNow(true),
+                        SLOW_RETRY_MS,
+                    );
                 } else if (modelReady) {
-                    this._fastRetries = 0;  // model is ready, no more fast retries
+                    this._fastRetries = 0;  // model is ready, no more retries
+                    this._slowRetries = 0;
                 }
 
                 this._onDidChange.fire();

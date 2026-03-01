@@ -292,7 +292,7 @@ suite("MonitorTreeProvider", () => {
         assert.ok(pipeline, "Should have analysisPipeline section");
         assert.strictEqual(
             pipeline.collapsibleState,
-            1, // vscode.TreeItemCollapsibleState.Expanded
+            2, // vscode.TreeItemCollapsibleState.Expanded
             "Analysis Pipeline should be expanded"
         );
     });

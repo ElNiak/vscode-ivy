@@ -74,7 +74,7 @@ export function applyRequirementDecorations(
     actionName?: string,
 ): void {
     const data = provider.actionRequirements;
-    if (!data || !data.modelReady) {
+    if (!data || !data.modelReady || !Array.isArray(data.actions)) {
         clearRequirementDecorations(editor);
         return;
     }

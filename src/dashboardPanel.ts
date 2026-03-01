@@ -56,6 +56,7 @@ export class DashboardPanel {
         type: string;
         action?: string;
     }): Promise<void> {
+        if (this._disposed) { return; }
         try {
             switch (msg.action) {
                 case "reindex":

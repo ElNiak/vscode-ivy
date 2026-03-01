@@ -59,12 +59,20 @@ let modelDataProvider: ModelDataProvider | undefined;
 let reqTreeProvider: RequirementTreeProvider | undefined;
 let activityChannel: ActivityChannel | undefined;
 let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Debounce timer for LSP configuration changes to prevent rapid restarts. */
+let configChangeTimer: ReturnType<typeof setTimeout> | undefined;
 /** Reused across restarts to avoid leaking output channels. */
 let traceOutputChannel: vscode.OutputChannel | undefined;
 /** Global mutex ensuring only one LSP request is in-flight at a time. */
 const requestSerializer = new RequestSerializer();
-/** Disposable for the window/logMessage notification handler. */
+/** Disposable for the window/logMessage notification handler.
+ *  Wrapped in a proxy disposable so it can be tracked in context.subscriptions
+ *  even though the underlying disposable is replaced on each client restart.
+ */
 let logNotificationDisposable: vscode.Disposable | undefined;
+const logNotificationProxy: vscode.Disposable = {
+    dispose() { logNotificationDisposable?.dispose(); logNotificationDisposable = undefined; },
+};
 
 /** Tracks which consumers need ModelDataProvider to keep polling. */
 const modelVisibleConsumers = new Set<string>();
@@ -311,7 +319,7 @@ export async function activate(
     context.subscriptions.push(treeView, treeProvider, stateTracker);
 
     activityChannel = new ActivityChannel();
-    context.subscriptions.push(activityChannel);
+    context.subscriptions.push(activityChannel, logNotificationProxy);
 
     // Set up model data provider for visualization features.
     modelDataProvider = new ModelDataProvider(null, requestSerializer);
@@ -380,7 +388,7 @@ export async function activate(
                 }
             }
 
-            // LSP-related settings: restart the server.
+            // LSP-related settings: restart the server (debounced to prevent rapid restarts).
             if (
                 e.affectsConfiguration("ivy.pythonPath") ||
                 e.affectsConfiguration("ivy.lsp.enabled") ||
@@ -402,18 +410,24 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.compileCacheTTL") ||
                 e.affectsConfiguration("ivy.activity.granularity")
             ) {
-                clearCache();
-                await stopClient();
-
-                const nowEnabled = vscode.workspace
-                    .getConfiguration("ivy")
-                    .get<boolean>("lsp.enabled", true);
-
-                if (nowEnabled) {
-                    await startClient(context);
-                } else {
-                    setStatus("syntax-only");
+                if (configChangeTimer) {
+                    clearTimeout(configChangeTimer);
                 }
+                configChangeTimer = setTimeout(async () => {
+                    configChangeTimer = undefined;
+                    clearCache();
+                    await stopClient();
+
+                    const nowEnabled = vscode.workspace
+                        .getConfiguration("ivy")
+                        .get<boolean>("lsp.enabled", true);
+
+                    if (nowEnabled) {
+                        await startClient(context);
+                    } else {
+                        setStatus("syntax-only");
+                    }
+                }, 500);
             }
         })
     );
@@ -453,10 +467,14 @@ export async function activate(
 }
 
 export async function deactivate(): Promise<void> {
-    // Clear the debounce timer for editor changes.
+    // Clear debounce timers.
     if (editorChangeTimer) {
         clearTimeout(editorChangeTimer);
         editorChangeTimer = undefined;
+    }
+    if (configChangeTimer) {
+        clearTimeout(configChangeTimer);
+        configChangeTimer = undefined;
     }
     // All disposable objects are already in context.subscriptions,
     // which VS Code disposes automatically. Just stop the LSP client.

@@ -29,6 +29,8 @@ export class LspStateTracker implements vscode.Disposable {
     private _pipelineTimer: ReturnType<typeof setInterval> | null = null;
     /** Pending stagger timeouts that create interval timers at startup. */
     private _staggerTimers: ReturnType<typeof setTimeout>[] = [];
+    /** True once _startDeferredTimers() has been called (prevents duplicates). */
+    private _deferredTimersStarted = false;
     /** True until the server sends ``ivy/serverReady`` or status.initializing becomes false. */
     private _serverInitializing = true;
     private _visible = false;
@@ -76,6 +78,7 @@ export class LspStateTracker implements vscode.Disposable {
         this._prevDeepIndexRunning = false;
         this._prevTier3FileCount = 0;
         this._backoffs = {};
+        this._deferredTimersStarted = false;
         this._serverInitializing = true;
         this._onDidChange.fire();
         if (this._visible && newClient) {
@@ -263,6 +266,8 @@ export class LspStateTracker implements vscode.Disposable {
      * ``onServerReady`` (server just finished initialization).
      */
     private _startDeferredTimers(): void {
+        if (this._deferredTimersStarted) { return; }
+        this._deferredTimersStarted = true;
         this._staggerTimers.push(setTimeout(() => {
             this._statsTimer = setInterval(() => this._pollStats(), 10000);
         }, 500));
@@ -298,6 +303,7 @@ export class LspStateTracker implements vscode.Disposable {
             clearTimeout(t);
         }
         this._staggerTimers = [];
+        this._deferredTimersStarted = false;
         if (this._statusTimer) {
             clearInterval(this._statusTimer);
         }

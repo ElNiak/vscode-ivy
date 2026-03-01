@@ -70,6 +70,7 @@ function renderSummaryTable(data: {
 }): void {
     const table = document.getElementById("summary-table");
     if (!table) return;
+    if (!Array.isArray(data?.rows)) return;
 
     const thead = table.querySelector("thead tr")!;
     const tbody = table.querySelector("tbody")!;
@@ -190,6 +191,7 @@ function renderLayers(data: {
 }): void {
     const container = document.getElementById("layers-container");
     if (!container) return;
+    if (!Array.isArray(data?.layers)) return;
     container.innerHTML = "";
 
     if (data.layers.length === 0) {

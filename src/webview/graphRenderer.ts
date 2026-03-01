@@ -103,7 +103,10 @@ export function createDependencyGraph(
 
     const elements: ElementDefinition[] = [];
 
-    for (const node of data.nodes) {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const edges = Array.isArray(data.edges) ? data.edges : [];
+
+    for (const node of nodes) {
         elements.push({
             data: {
                 id: node.id,
@@ -116,7 +119,7 @@ export function createDependencyGraph(
         });
     }
 
-    for (const edge of data.edges) {
+    for (const edge of edges) {
         elements.push({
             data: {
                 source: edge.source,
@@ -225,7 +228,10 @@ export function createStateMachineGraph(
 
     const elements: ElementDefinition[] = [];
 
-    for (const node of data.nodes) {
+    const nodes = Array.isArray(data.nodes) ? data.nodes : [];
+    const transitions = Array.isArray(data.transitions) ? data.transitions : [];
+
+    for (const node of nodes) {
         elements.push({
             data: {
                 id: node.id,
@@ -237,8 +243,8 @@ export function createStateMachineGraph(
         });
     }
 
-    for (let i = 0; i < data.transitions.length; i++) {
-        const t = data.transitions[i];
+    for (let i = 0; i < transitions.length; i++) {
+        const t = transitions[i];
         elements.push({
             data: {
                 id: `t${i}`,

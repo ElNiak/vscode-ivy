@@ -60,7 +60,7 @@ export class RequirementTreeProvider
         if (!data.modelReady) {
             return [new MessageItem("Indexing workspace...")];
         }
-        if (data.actions.length === 0) {
+        if (!Array.isArray(data.actions) || data.actions.length === 0) {
             return [new MessageItem("No actions found")];
         }
         return data.actions.map((a) => new ActionItem(a));
