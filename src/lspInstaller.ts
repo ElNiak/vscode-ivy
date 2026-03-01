@@ -84,6 +84,7 @@ export async function ensureIvyLspInstalled(
             // Step 2: Install ivy-lsp (light, no z3).
             progress.report({ message: "Installing ivy-lsp..." });
             const pip = venvPip();
+            // DEV-ONLY: installs from GitHub HEAD. Pin to a tag (@vX.Y.Z) before release.
             const ok = await runProcess(
                 pip,
                 ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
@@ -162,6 +163,7 @@ export async function upgradeManagedIvyLsp(): Promise<boolean> {
             cancellable: true,
         },
         async (_progress, token) => {
+            // DEV-ONLY: installs from GitHub HEAD. Pin to a tag (@vX.Y.Z) before release.
             const ok = await runProcess(
                 pip,
                 ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
