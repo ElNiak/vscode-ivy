@@ -17,6 +17,7 @@ import {
     LayeredOverviewResponse,
 } from "./requirements/requirementTypes";
 import { ModelReadyNotification } from "./monitorTypes";
+import { RequestSerializer } from "./requestSerializer";
 
 const POLL_INTERVAL_MS = 30_000;
 /** Longer timeout for the first poll while the server may still be indexing. */
@@ -63,8 +64,11 @@ export class ModelDataProvider implements vscode.Disposable {
     private _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
-    constructor(client: LanguageClient | null) {
+    private _serializer?: RequestSerializer;
+
+    constructor(client: LanguageClient | null, serializer?: RequestSerializer) {
         this._client = client;
+        this._serializer = serializer;
     }
 
     /** Update the underlying client (e.g. after restart). Resets cached state. */
@@ -129,18 +133,18 @@ export class ModelDataProvider implements vscode.Disposable {
             );
         }
 
-        // Safety fallback: if no modelReady notification arrives within 90s,
+        // Safety fallback: if no modelReady notification arrives within 180s,
         // try a forced refresh anyway.
         if (newClient) {
             const capturedVersion = this._clientVersion;
             this._safetyTimer = setTimeout(() => {
                 this._safetyTimer = null;
                 if (this._clientVersion === capturedVersion && !this._modelReadyReceived) {
-                    console.warn("[ivy-model] No ivy/modelReady after 90s, forcing refresh");
+                    console.warn("[ivy-model] No ivy/modelReady after 180s, forcing refresh");
                     this._modelReadyReceived = true;
                     this.refreshNow(true);
                 }
-            }, 90_000);
+            }, 180_000);
         }
 
         this._onDidChange.fire();
@@ -202,94 +206,102 @@ export class ModelDataProvider implements vscode.Disposable {
         }
         this._refreshing = true;
 
-        const delay = (ms: number) =>
-            new Promise<void>((r) => setTimeout(r, ms));
+        const doRefresh = async (): Promise<void> => {
+            const delay = (ms: number) =>
+                new Promise<void>((r) => setTimeout(r, ms));
 
-        let anySuccess = false;
+            let anySuccess = false;
 
-        try {
-            const scopeParams = this._getScopeParams();
-
-            // Sequential requests with small gaps
             try {
-                const actions =
-                    await this._sendWithTimeout<ActionRequirementsResponse>(
-                        "ivy/actionRequirements",
+                const scopeParams = this._getScopeParams();
+
+                // Sequential requests with small gaps
+                try {
+                    const actions =
+                        await this._sendWithTimeout<ActionRequirementsResponse>(
+                            "ivy/actionRequirements",
+                            scopeParams,
+                        );
+                    this.actionRequirements = actions;
+                    anySuccess = true;
+                } catch (err) {
+                    console.warn("[ivy-model] ivy/actionRequirements failed:", err);
+                }
+
+                await delay(250);
+
+                try {
+                    const summary =
+                        await this._sendWithTimeout<ModelSummaryResponse>(
+                            "ivy/modelSummaryTable",
+                            scopeParams,
+                        );
+                    this.modelSummary = summary;
+                    anySuccess = true;
+                } catch (err) {
+                    console.warn("[ivy-model] ivy/modelSummaryTable failed:", err);
+                }
+
+                await delay(250);
+
+                try {
+                    const gaps = await this._sendWithTimeout<CoverageGapsResponse>(
+                        "ivy/coverageGaps",
                         scopeParams,
                     );
-                this.actionRequirements = actions;
-                anySuccess = true;
-            } catch (err) {
-                console.warn("[ivy-model] ivy/actionRequirements failed:", err);
-            }
+                    this.coverageGaps = gaps;
+                    anySuccess = true;
+                } catch (err) {
+                    console.warn("[ivy-model] ivy/coverageGaps failed:", err);
+                }
 
-            await delay(100);
+                await delay(250);
 
-            try {
-                const summary =
-                    await this._sendWithTimeout<ModelSummaryResponse>(
-                        "ivy/modelSummaryTable",
-                        scopeParams,
-                    );
-                this.modelSummary = summary;
-                anySuccess = true;
-            } catch (err) {
-                console.warn("[ivy-model] ivy/modelSummaryTable failed:", err);
-            }
+                try {
+                    const layers =
+                        await this._sendWithTimeout<LayeredOverviewResponse>(
+                            "ivy/layeredOverview",
+                            scopeParams,
+                        );
+                    this.layeredOverview = layers;
+                    anySuccess = true;
+                } catch (err) {
+                    console.warn("[ivy-model] ivy/layeredOverview failed:", err);
+                }
 
-            await delay(100);
+                if (anySuccess) {
+                    this._onPollSuccess();
+                } else {
+                    this._onPollFailure();
+                }
 
-            try {
-                const gaps = await this._sendWithTimeout<CoverageGapsResponse>(
-                    "ivy/coverageGaps",
-                    scopeParams,
+                // Log the state for debugging.
+                const modelReady = this.actionRequirements?.modelReady ?? null;
+                const actionCount = this.actionRequirements?.actions?.length ?? 0;
+                console.debug(
+                    `[ivy-model] refreshNow: modelReady=${modelReady}, actions=${actionCount}, fastRetries=${this._fastRetries}`
                 );
-                this.coverageGaps = gaps;
-                anySuccess = true;
-            } catch (err) {
-                console.warn("[ivy-model] ivy/coverageGaps failed:", err);
+
+                // If the model isn't ready yet, schedule a fast retry instead of
+                // waiting the full 30-second interval.
+                this._clearFastRetryTimer();
+                if (!modelReady && this._fastRetries > 0) {
+                    this._fastRetries--;
+                    this._fastRetryTimer = setTimeout(() => this.refreshNow(true), FAST_RETRY_MS);
+                } else if (modelReady) {
+                    this._fastRetries = 0;  // model is ready, no more fast retries
+                }
+
+                this._onDidChange.fire();
+            } finally {
+                this._refreshing = false;
             }
+        };
 
-            await delay(100);
-
-            try {
-                const layers =
-                    await this._sendWithTimeout<LayeredOverviewResponse>(
-                        "ivy/layeredOverview",
-                        scopeParams,
-                    );
-                this.layeredOverview = layers;
-                anySuccess = true;
-            } catch (err) {
-                console.warn("[ivy-model] ivy/layeredOverview failed:", err);
-            }
-
-            if (anySuccess) {
-                this._onPollSuccess();
-            } else {
-                this._onPollFailure();
-            }
-
-            // Log the state for debugging.
-            const modelReady = this.actionRequirements?.modelReady ?? null;
-            const actionCount = this.actionRequirements?.actions?.length ?? 0;
-            console.debug(
-                `[ivy-model] refreshNow: modelReady=${modelReady}, actions=${actionCount}, fastRetries=${this._fastRetries}`
-            );
-
-            // If the model isn't ready yet, schedule a fast retry instead of
-            // waiting the full 30-second interval.
-            this._clearFastRetryTimer();
-            if (!modelReady && this._fastRetries > 0) {
-                this._fastRetries--;
-                this._fastRetryTimer = setTimeout(() => this.refreshNow(true), FAST_RETRY_MS);
-            } else if (modelReady) {
-                this._fastRetries = 0;  // model is ready, no more fast retries
-            }
-
-            this._onDidChange.fire();
-        } finally {
-            this._refreshing = false;
+        if (this._serializer) {
+            await this._serializer.run(doRefresh);
+        } else {
+            await doRefresh();
         }
     }
 
@@ -302,26 +314,33 @@ export class ModelDataProvider implements vscode.Disposable {
         if (!this._client || this._client.state !== 2) {
             return;
         }
-        const scopeParams = this._getScopeParams();
-        try {
-            this.dependencyGraph =
-                await this._sendWithTimeout<ActionDependencyGraphResponse>(
-                    "ivy/actionDependencyGraph",
-                    scopeParams,
-                );
-        } catch (err) {
-            console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
+        const doRefresh = async (): Promise<void> => {
+            const scopeParams = this._getScopeParams();
+            try {
+                this.dependencyGraph =
+                    await this._sendWithTimeout<ActionDependencyGraphResponse>(
+                        "ivy/actionDependencyGraph",
+                        scopeParams,
+                    );
+            } catch (err) {
+                console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
+            }
+            try {
+                this.stateMachine =
+                    await this._sendWithTimeout<StateMachineViewResponse>(
+                        "ivy/stateMachineView",
+                        scopeParams,
+                    );
+            } catch (err) {
+                console.warn("[ivy-model] ivy/stateMachineView failed:", err);
+            }
+            this._onDidChange.fire();
+        };
+        if (this._serializer) {
+            await this._serializer.run(doRefresh);
+        } else {
+            await doRefresh();
         }
-        try {
-            this.stateMachine =
-                await this._sendWithTimeout<StateMachineViewResponse>(
-                    "ivy/stateMachineView",
-                    scopeParams,
-                );
-        } catch (err) {
-            console.warn("[ivy-model] ivy/stateMachineView failed:", err);
-        }
-        this._onDidChange.fire();
     }
 
     /** Send a request with a timeout to prevent indefinite hangs. */
@@ -378,7 +397,8 @@ export class ModelDataProvider implements vscode.Disposable {
         if (this._timer) {
             return;
         }
-        this.refreshNow();
+        // Don't call refreshNow() immediately — wait for modelReady
+        // notification or explicit user interaction to avoid startup storm.
         this._timer = setInterval(() => this.refreshNow(), POLL_INTERVAL_MS);
     }
 

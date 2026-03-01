@@ -448,7 +448,7 @@
         },
         "ivy.lsp.stopTimeout": {
           "type": "number",
-          "default": 15,
+          "default": 30,
           "minimum": 5,
           "maximum": 60,
           "description": "Timeout in seconds for stopping the language server. Increase if you see 'Array buffer allocation failed' or 'Shutting down server' errors on large workspaces."

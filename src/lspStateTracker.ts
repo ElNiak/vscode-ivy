@@ -12,6 +12,7 @@ import {
     TestFeatureMatrix,
     AnalysisPipelineDetail,
 } from "./monitorTypes";
+import { RequestSerializer } from "./requestSerializer";
 
 /** Timeout (ms) for individual poll requests. */
 const POLL_TIMEOUT_MS = 5000;
@@ -50,7 +51,10 @@ export class LspStateTracker implements vscode.Disposable {
     private _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
 
-    constructor(private client: LanguageClient | null) {}
+    constructor(
+        private client: LanguageClient | null,
+        private _serializer?: RequestSerializer,
+    ) {}
 
     /** Update the underlying client (e.g. after restart). Resets cached state. */
     setClient(newClient: LanguageClient | null): void {
@@ -98,99 +102,107 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2 /* Running */) {
             return;
         }
-        const delay = (ms: number) =>
-            new Promise<void>((r) => setTimeout(r, ms));
+        const doRefresh = async (): Promise<void> => {
+            const delay = (ms: number) =>
+                new Promise<void>((r) => setTimeout(r, ms));
 
-        try {
-            const status = await this.client.sendRequest<ServerStatus>(
-                "ivy/serverStatus",
-                null
-            );
-            this.serverStatus = status;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
-            this.serverStatus = null;
-        }
-        await delay(100);
-
-        try {
-            const stats = await this.client.sendRequest<IndexerStats>(
-                "ivy/indexerStats",
-                null
-            );
-            this.indexerStats = stats;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
-            this.indexerStats = null;
-        }
-        await delay(100);
-
-        try {
-            const history = await this.client.sendRequest<OperationHistory>(
-                "ivy/operationHistory",
-                null
-            );
-            this.operationHistory = history;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
-            this.operationHistory = null;
-        }
-        await delay(100);
-
-        try {
-            const features = await this.client.sendRequest<FeatureStatus>(
-                "ivy/featureStatus",
-                null
-            );
-            this.featureStatus = features;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
-            this.featureStatus = null;
-        }
-        await delay(100);
-
-        try {
-            const deepIndex =
-                await this.client.sendRequest<DeepIndexProgress>(
-                    "ivy/deepIndexProgress",
+            try {
+                const status = await this.client!.sendRequest<ServerStatus>(
+                    "ivy/serverStatus",
                     null
                 );
-            this.deepIndexProgress = deepIndex;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
-            this.deepIndexProgress = null;
-        }
-        await delay(100);
+                this.serverStatus = status;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
+                this.serverStatus = null;
+            }
+            await delay(250);
 
-        try {
-            const testMatrix =
-                await this.client.sendRequest<TestFeatureMatrix>(
-                    "ivy/testFeatureMatrix",
+            try {
+                const stats = await this.client!.sendRequest<IndexerStats>(
+                    "ivy/indexerStats",
                     null
                 );
-            this.testFeatureMatrix = testMatrix;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
-            this.testFeatureMatrix = null;
-        }
-        await delay(100);
+                this.indexerStats = stats;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
+                this.indexerStats = null;
+            }
+            await delay(250);
 
-        try {
-            const pipelineDetail =
-                await this.client.sendRequest<AnalysisPipelineDetail>(
-                    "ivy/analysisPipelineDetail",
+            try {
+                const history = await this.client!.sendRequest<OperationHistory>(
+                    "ivy/operationHistory",
                     null
                 );
-            this.pipelineDetail = pipelineDetail;
-        } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
-            this.pipelineDetail = null;
-        }
+                this.operationHistory = history;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
+                this.operationHistory = null;
+            }
+            await delay(250);
 
-        this._checkForStateChanges();
-        this._checkForDeepIndexChanges();
-        this._checkForTier3Changes();
-        this._onDidChange.fire();
+            try {
+                const features = await this.client!.sendRequest<FeatureStatus>(
+                    "ivy/featureStatus",
+                    null
+                );
+                this.featureStatus = features;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
+                this.featureStatus = null;
+            }
+            await delay(250);
+
+            try {
+                const deepIndex =
+                    await this.client!.sendRequest<DeepIndexProgress>(
+                        "ivy/deepIndexProgress",
+                        null
+                    );
+                this.deepIndexProgress = deepIndex;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
+                this.deepIndexProgress = null;
+            }
+            await delay(250);
+
+            try {
+                const testMatrix =
+                    await this.client!.sendRequest<TestFeatureMatrix>(
+                        "ivy/testFeatureMatrix",
+                        null
+                    );
+                this.testFeatureMatrix = testMatrix;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
+                this.testFeatureMatrix = null;
+            }
+            await delay(250);
+
+            try {
+                const pipelineDetail =
+                    await this.client!.sendRequest<AnalysisPipelineDetail>(
+                        "ivy/analysisPipelineDetail",
+                        null
+                    );
+                this.pipelineDetail = pipelineDetail;
+            } catch (err) {
+                console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
+                this.pipelineDetail = null;
+            }
+
+            this._checkForStateChanges();
+            this._checkForDeepIndexChanges();
+            this._checkForTier3Changes();
+            this._onDidChange.fire();
+        };
+
+        if (this._serializer) {
+            await this._serializer.run(doRefresh);
+        } else {
+            await doRefresh();
+        }
     }
 
     async sendReindex(): Promise<ActionResult | null> {
@@ -333,16 +345,23 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._shouldSkip("status")) {
             return;
         }
-        try {
-            this.serverStatus = await this._sendWithTimeout<ServerStatus>(
-                "ivy/serverStatus"
-            );
-            this._onPollSuccess("status");
-            this._checkForStateChanges();
-            this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] status poll failed:", err);
-            this._onPollFailure("status");
+        const doPoll = async (): Promise<void> => {
+            try {
+                this.serverStatus = await this._sendWithTimeout<ServerStatus>(
+                    "ivy/serverStatus"
+                );
+                this._onPollSuccess("status");
+                this._checkForStateChanges();
+                this._onDidChange.fire();
+            } catch (err) {
+                console.debug("[ivy-tracker] status poll failed:", err);
+                this._onPollFailure("status");
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 
@@ -353,15 +372,22 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._shouldSkip("stats")) {
             return;
         }
-        try {
-            this.indexerStats = await this._sendWithTimeout<IndexerStats>(
-                "ivy/indexerStats"
-            );
-            this._onPollSuccess("stats");
-            this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] stats poll failed:", err);
-            this._onPollFailure("stats");
+        const doPoll = async (): Promise<void> => {
+            try {
+                this.indexerStats = await this._sendWithTimeout<IndexerStats>(
+                    "ivy/indexerStats"
+                );
+                this._onPollSuccess("stats");
+                this._onDidChange.fire();
+            } catch (err) {
+                console.debug("[ivy-tracker] stats poll failed:", err);
+                this._onPollFailure("stats");
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 
@@ -372,16 +398,23 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._shouldSkip("history")) {
             return;
         }
-        try {
-            this.operationHistory =
-                await this._sendWithTimeout<OperationHistory>(
-                    "ivy/operationHistory"
-                );
-            this._onPollSuccess("history");
-            this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] history poll failed:", err);
-            this._onPollFailure("history");
+        const doPoll = async (): Promise<void> => {
+            try {
+                this.operationHistory =
+                    await this._sendWithTimeout<OperationHistory>(
+                        "ivy/operationHistory"
+                    );
+                this._onPollSuccess("history");
+                this._onDidChange.fire();
+            } catch (err) {
+                console.debug("[ivy-tracker] history poll failed:", err);
+                this._onPollFailure("history");
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 
@@ -392,15 +425,22 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._shouldSkip("features")) {
             return;
         }
-        try {
-            this.featureStatus = await this._sendWithTimeout<FeatureStatus>(
-                "ivy/featureStatus"
-            );
-            this._onPollSuccess("features");
-            this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] features poll failed:", err);
-            this._onPollFailure("features");
+        const doPoll = async (): Promise<void> => {
+            try {
+                this.featureStatus = await this._sendWithTimeout<FeatureStatus>(
+                    "ivy/featureStatus"
+                );
+                this._onPollSuccess("features");
+                this._onDidChange.fire();
+            } catch (err) {
+                console.debug("[ivy-tracker] features poll failed:", err);
+                this._onPollFailure("features");
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 
@@ -458,38 +498,45 @@ export class LspStateTracker implements vscode.Disposable {
         if (!this.client || this.client.state !== 2) {
             return;
         }
-        let changed = false;
-        // Poll each endpoint independently so one failure doesn't
-        // suppress the other via shared backoff.
-        if (!this._shouldSkip("deepIndex")) {
-            try {
-                this.deepIndexProgress =
-                    await this._sendWithTimeout<DeepIndexProgress>(
-                        "ivy/deepIndexProgress"
-                    );
-                this._onPollSuccess("deepIndex");
-                this._checkForDeepIndexChanges();
-                changed = true;
-            } catch (err) {
-                console.debug("[ivy-tracker] deepIndex poll failed:", err);
-                this._onPollFailure("deepIndex");
+        const doPoll = async (): Promise<void> => {
+            let changed = false;
+            // Poll each endpoint independently so one failure doesn't
+            // suppress the other via shared backoff.
+            if (!this._shouldSkip("deepIndex")) {
+                try {
+                    this.deepIndexProgress =
+                        await this._sendWithTimeout<DeepIndexProgress>(
+                            "ivy/deepIndexProgress"
+                        );
+                    this._onPollSuccess("deepIndex");
+                    this._checkForDeepIndexChanges();
+                    changed = true;
+                } catch (err) {
+                    console.debug("[ivy-tracker] deepIndex poll failed:", err);
+                    this._onPollFailure("deepIndex");
+                }
             }
-        }
-        if (!this._shouldSkip("testMatrix")) {
-            try {
-                this.testFeatureMatrix =
-                    await this._sendWithTimeout<TestFeatureMatrix>(
-                        "ivy/testFeatureMatrix"
-                    );
-                this._onPollSuccess("testMatrix");
-                changed = true;
-            } catch (err) {
-                console.debug("[ivy-tracker] testMatrix poll failed:", err);
-                this._onPollFailure("testMatrix");
+            if (!this._shouldSkip("testMatrix")) {
+                try {
+                    this.testFeatureMatrix =
+                        await this._sendWithTimeout<TestFeatureMatrix>(
+                            "ivy/testFeatureMatrix"
+                        );
+                    this._onPollSuccess("testMatrix");
+                    changed = true;
+                } catch (err) {
+                    console.debug("[ivy-tracker] testMatrix poll failed:", err);
+                    this._onPollFailure("testMatrix");
+                }
             }
-        }
-        if (changed) {
-            this._onDidChange.fire();
+            if (changed) {
+                this._onDidChange.fire();
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 
@@ -514,17 +561,24 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._shouldSkip("pipeline")) {
             return;
         }
-        try {
-            this.pipelineDetail =
-                await this._sendWithTimeout<AnalysisPipelineDetail>(
-                    "ivy/analysisPipelineDetail"
-                );
-            this._onPollSuccess("pipeline");
-            this._checkForTier3Changes();
-            this._onDidChange.fire();
-        } catch (err) {
-            console.debug("[ivy-tracker] pipeline poll failed:", err);
-            this._onPollFailure("pipeline");
+        const doPoll = async (): Promise<void> => {
+            try {
+                this.pipelineDetail =
+                    await this._sendWithTimeout<AnalysisPipelineDetail>(
+                        "ivy/analysisPipelineDetail"
+                    );
+                this._onPollSuccess("pipeline");
+                this._checkForTier3Changes();
+                this._onDidChange.fire();
+            } catch (err) {
+                console.debug("[ivy-tracker] pipeline poll failed:", err);
+                this._onPollFailure("pipeline");
+            }
+        };
+        if (this._serializer) {
+            await this._serializer.run(doPoll);
+        } else {
+            await doPoll();
         }
     }
 

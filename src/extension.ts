@@ -40,6 +40,7 @@ import { LspStateTracker } from "./lspStateTracker";
 import { MonitorTreeProvider } from "./monitorTreeProvider";
 import { DashboardPanel } from "./dashboardPanel";
 import { ModelDataProvider } from "./modelDataProvider";
+import { RequestSerializer } from "./requestSerializer";
 import { RequirementTreeProvider } from "./requirements/requirementTreeProvider";
 import {
     applyRequirementDecorations,
@@ -60,6 +61,8 @@ let activityChannel: ActivityChannel | undefined;
 let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
 /** Reused across restarts to avoid leaking output channels. */
 let traceOutputChannel: vscode.OutputChannel | undefined;
+/** Global mutex ensuring only one LSP request is in-flight at a time. */
+const requestSerializer = new RequestSerializer();
 /** Disposable for the window/logMessage notification handler. */
 let logNotificationDisposable: vscode.Disposable | undefined;
 
@@ -294,7 +297,7 @@ export async function activate(
 
     // Set up monitoring tree view at activation time so the panel is
     // available immediately, showing "Not connected" until the server is ready.
-    stateTracker = new LspStateTracker(null);
+    stateTracker = new LspStateTracker(null, requestSerializer);
     treeProvider = new MonitorTreeProvider(stateTracker);
     const treeView = vscode.window.createTreeView("ivyMonitor", {
         treeDataProvider: treeProvider,
@@ -311,7 +314,7 @@ export async function activate(
     context.subscriptions.push(activityChannel);
 
     // Set up model data provider for visualization features.
-    modelDataProvider = new ModelDataProvider(null);
+    modelDataProvider = new ModelDataProvider(null, requestSerializer);
     context.subscriptions.push(modelDataProvider);
     setModelVisibleCallback(setModelVisible);
 
@@ -786,12 +789,15 @@ async function startWithPython(
             setStatus("running-full", version);
         }
 
-        // Register model/monitor clients IMMEDIATELY — before any await
-        // that could allow ivy/modelReady to arrive without a handler.
+        // Register model/monitor clients IMMEDIATELY so the
+        // ivy/modelReady notification handler is in place.  Actual data
+        // fetching is deferred: LspStateTracker polls only when its tree
+        // view is visible, and ModelDataProvider waits for modelReady or
+        // explicit user interaction before its first request.
         console.debug("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
         stateTracker?.setClient(client);
         modelDataProvider?.setClient(client);
-        console.debug("[ivy-ext] setClient + setVisible done");
+        console.debug("[ivy-ext] setClient done (polling deferred)");
 
         // Refresh test scope status bar after successful start.
         const tsScopeEnabled = vscode.workspace
@@ -813,6 +819,10 @@ async function startWithPython(
 }
 
 async function stopClient(): Promise<void> {
+    // 1. Stop all polling FIRST to prevent new requests during shutdown.
+    stateTracker?.setVisible(false);
+    modelDataProvider?.setVisible(false);
+
     logNotificationDisposable?.dispose();
     logNotificationDisposable = undefined;
     if (client) {
@@ -820,10 +830,10 @@ async function stopClient(): Promise<void> {
             const stopMs =
                 vscode.workspace
                     .getConfiguration("ivy")
-                    .get<number>("lsp.stopTimeout", 15) * 1000;
+                    .get<number>("lsp.stopTimeout", 30) * 1000;
             await client.stop(stopMs);
         } catch (err) {
-            console.debug("[ivy-ext] stopClient error (may be expected):", err);
+            console.debug("[ivy-ext] stopClient error:", err);
         }
         client = undefined;
     }
