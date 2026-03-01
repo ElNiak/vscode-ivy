@@ -85,7 +85,7 @@ export function applyRequirementDecorations(
 
     for (const action of data.actions) {
         // Filter by file -- only decorate actions defined in this editor.
-        if (action.file !== filePath) {
+        if (action.file.toLowerCase() !== filePath.toLowerCase()) {
             continue;
         }
         // If a specific action was requested, skip non-matching ones.
