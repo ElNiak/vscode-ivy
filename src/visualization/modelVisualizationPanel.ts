@@ -57,11 +57,12 @@ export class ModelVisualizationPanel {
                             const uri = vscode.Uri.file(msg.file);
                             vscode.window.showTextDocument(uri, {
                                 selection: new vscode.Range(
-                                    msg.line,
-                                    0,
-                                    msg.line,
-                                    0,
+                                    msg.line, 0, msg.line, 0,
                                 ),
+                            }).then(undefined, (err) => {
+                                vscode.window.showWarningMessage(
+                                    `Ivy: Could not open ${msg.file}: ${err instanceof Error ? err.message : String(err)}`
+                                );
                             });
                         }
                         break;
