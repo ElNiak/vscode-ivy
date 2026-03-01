@@ -780,6 +780,12 @@ async function startWithPython(
         }
     });
 
+    // Register ivy/serverReady notification BEFORE client.start() so it's
+    // in place by the time the server finishes initialization.
+    client.onNotification("ivy/serverReady", () => {
+        stateTracker?.onServerReady();
+    });
+
     try {
         console.debug("[ivy-ext] calling client.start()...");
         await client.start();

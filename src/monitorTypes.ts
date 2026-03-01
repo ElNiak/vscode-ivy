@@ -6,6 +6,7 @@ export interface ServerStatus {
     uptimeSeconds: number;
     indexingState: "idle" | "indexing" | "error";
     indexingError?: string;
+    initializing?: boolean;
     toolAvailability: {
         ivyCheck: boolean;
         ivyc: boolean;
@@ -161,4 +162,10 @@ export interface TestFeatureMatrix {
 export interface ModelReadyNotification {
     actionCount: number;
     requirementCount: number;
+}
+
+/** Payload of the `ivy/serverReady` server notification. */
+export interface ServerReadyNotification {
+    mode: string;
+    indexingDuration: number;
 }

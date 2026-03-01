@@ -14,8 +14,10 @@ import {
 } from "./monitorTypes";
 import { RequestSerializer } from "./requestSerializer";
 
-/** Timeout (ms) for individual poll requests. */
-const POLL_TIMEOUT_MS = 5000;
+/** Timeout (ms) for individual poll requests once the server is ready. */
+const POLL_TIMEOUT_BASE_MS = 5000;
+/** Longer timeout (ms) used while the server is still initializing. */
+const POLL_TIMEOUT_INIT_MS = 30000;
 
 /** Client-side state tracker that polls the LSP server for monitoring data. */
 export class LspStateTracker implements vscode.Disposable {
@@ -27,6 +29,8 @@ export class LspStateTracker implements vscode.Disposable {
     private _pipelineTimer: ReturnType<typeof setInterval> | null = null;
     /** Pending stagger timeouts that create interval timers at startup. */
     private _staggerTimers: ReturnType<typeof setTimeout>[] = [];
+    /** True until the server sends ``ivy/serverReady`` or status.initializing becomes false. */
+    private _serverInitializing = true;
     private _visible = false;
 
     /** Cached state from most recent poll. */
@@ -72,6 +76,7 @@ export class LspStateTracker implements vscode.Disposable {
         this._prevDeepIndexRunning = false;
         this._prevTier3FileCount = 0;
         this._backoffs = {};
+        this._serverInitializing = true;
         this._onDidChange.fire();
         if (this._visible && newClient) {
             this._startPolling();
@@ -92,6 +97,21 @@ export class LspStateTracker implements vscode.Disposable {
         }
     }
 
+    /** Called when the server has completed initialization.
+     *
+     * Transitions from init-only polling to full monitoring.
+     */
+    onServerReady(): void {
+        if (!this._serverInitializing) {
+            return;
+        }
+        this._serverInitializing = false;
+        if (this._visible) {
+            this._startDeferredTimers();
+            this.refreshNow();
+        }
+    }
+
     /** Force an immediate refresh of all cached state.
      *
      * Requests are sent sequentially with short gaps to avoid flooding
@@ -100,6 +120,11 @@ export class LspStateTracker implements vscode.Disposable {
      */
     async refreshNow(): Promise<void> {
         if (!this.client || this.client.state !== 2 /* Running */) {
+            return;
+        }
+        // During initialization, only poll server status (lightweight, in-memory)
+        if (this._serverInitializing) {
+            await this._pollStatus();
             return;
         }
         const doRefresh = async (): Promise<void> => {
@@ -223,11 +248,21 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._statusTimer) {
             return;
         }
-        // Stagger initial refresh and timer creation to avoid flooding
-        // the stdio pipe at startup.  Track stagger timeouts so
-        // _stopPolling() can cancel them before they fire.
-        this.refreshNow();
+        // Always start the lightweight status poll immediately.
+        this._pollStatus();
         this._statusTimer = setInterval(() => this._pollStatus(), 3000);
+        // Defer heavyweight timers until the server is ready.
+        if (!this._serverInitializing) {
+            this._startDeferredTimers();
+        }
+    }
+
+    /** Start the staggered heavyweight polling timers.
+     *
+     * Called either from ``_startPolling`` (server already ready) or from
+     * ``onServerReady`` (server just finished initialization).
+     */
+    private _startDeferredTimers(): void {
         this._staggerTimers.push(setTimeout(() => {
             this._statsTimer = setInterval(() => this._pollStats(), 10000);
         }, 500));
@@ -289,8 +324,15 @@ export class LspStateTracker implements vscode.Disposable {
         this._pipelineTimer = null;
     }
 
-    /** Send a request with a timeout to prevent indefinite hangs. */
+    /** Send a request with a timeout to prevent indefinite hangs.
+     *
+     * Uses a longer timeout while the server is initializing (z3 import,
+     * workspace scan) so that requests aren't prematurely cancelled.
+     */
     private _sendWithTimeout<T>(method: string): Promise<T> {
+        const timeout = this._serverInitializing
+            ? POLL_TIMEOUT_INIT_MS
+            : POLL_TIMEOUT_BASE_MS;
         return new Promise<T>((resolve, reject) => {
             if (!this.client) {
                 reject(new Error(`${method}: client is null`));
@@ -298,7 +340,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
             const timer = setTimeout(
                 () => reject(new Error(`${method} timed out`)),
-                POLL_TIMEOUT_MS,
+                timeout,
             );
             this.client.sendRequest<T>(method, null).then(
                 (result) => { clearTimeout(timer); resolve(result); },
@@ -351,6 +393,15 @@ export class LspStateTracker implements vscode.Disposable {
                     "ivy/serverStatus"
                 );
                 this._onPollSuccess("status");
+                // Fallback: detect init->ready transition from status response
+                // in case the ivy/serverReady notification was missed.
+                if (
+                    this._serverInitializing &&
+                    this.serverStatus &&
+                    !this.serverStatus.initializing
+                ) {
+                    this.onServerReady();
+                }
                 this._checkForStateChanges();
                 this._onDidChange.fire();
             } catch (err) {
