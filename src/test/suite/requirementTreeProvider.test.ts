@@ -11,7 +11,7 @@ suite("RequirementTreeProvider", () => {
     ): ModelDataProvider {
         const provider = new ModelDataProvider(null as any);
         if (overrides.actionRequirements !== undefined) {
-            provider.actionRequirements = overrides.actionRequirements;
+            (provider as any)._actionRequirements = overrides.actionRequirements;
         }
         return provider;
     }
@@ -152,7 +152,7 @@ suite("RequirementTreeProvider", () => {
 
     test("shows error state when endpoint has error and no cached data", () => {
         const mdp = makeProvider();
-        mdp.endpointErrors.set("actionRequirements", "Connection refused");
+        (mdp as any)._endpointErrors.set("actionRequirements", "Connection refused");
         const tree = new RequirementTreeProvider(mdp);
         const roots = tree.getChildren(undefined);
         assert.strictEqual(roots.length, 1);

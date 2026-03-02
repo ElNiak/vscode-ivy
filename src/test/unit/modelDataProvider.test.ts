@@ -4,8 +4,8 @@ import { ModelDataProvider } from "../../modelDataProvider";
 suite("ModelDataProvider", () => {
     test("setClient(null) resets all cached data", () => {
         const mdp = new ModelDataProvider(null as any);
-        (mdp as any).actionRequirements = { modelReady: true, actions: [] };
-        (mdp as any).modelSummary = { rows: [] };
+        (mdp as any)._actionRequirements = { modelReady: true, actions: [] };
+        (mdp as any)._modelSummary = { rows: [] };
         mdp.setClient(null);
         assert.strictEqual(mdp.actionRequirements, null);
         assert.strictEqual(mdp.modelSummary, null);

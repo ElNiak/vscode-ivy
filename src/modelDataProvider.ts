@@ -67,15 +67,23 @@ export class ModelDataProvider implements vscode.Disposable {
     }
 
     /** Per-endpoint error state so UI consumers can show warning indicators. */
-    public readonly endpointErrors = new Map<string, string>();
+    private readonly _endpointErrors = new Map<string, string>();
+    get endpointErrors(): ReadonlyMap<string, string> { return this._endpointErrors; }
 
     /** Cached responses from the LSP server. */
-    public actionRequirements: ActionRequirementsResponse | null = null;
-    public modelSummary: ModelSummaryResponse | null = null;
-    public coverageGaps: CoverageGapsResponse | null = null;
-    public dependencyGraph: ActionDependencyGraphResponse | null = null;
-    public stateMachine: StateMachineViewResponse | null = null;
-    public layeredOverview: LayeredOverviewResponse | null = null;
+    private _actionRequirements: ActionRequirementsResponse | null = null;
+    private _modelSummary: ModelSummaryResponse | null = null;
+    private _coverageGaps: CoverageGapsResponse | null = null;
+    private _dependencyGraph: ActionDependencyGraphResponse | null = null;
+    private _stateMachine: StateMachineViewResponse | null = null;
+    private _layeredOverview: LayeredOverviewResponse | null = null;
+
+    get actionRequirements(): ActionRequirementsResponse | null { return this._actionRequirements; }
+    get modelSummary(): ModelSummaryResponse | null { return this._modelSummary; }
+    get coverageGaps(): CoverageGapsResponse | null { return this._coverageGaps; }
+    get dependencyGraph(): ActionDependencyGraphResponse | null { return this._dependencyGraph; }
+    get stateMachine(): StateMachineViewResponse | null { return this._stateMachine; }
+    get layeredOverview(): LayeredOverviewResponse | null { return this._layeredOverview; }
 
     private _onDidChange = new vscode.EventEmitter<void>();
     public readonly onDidChange = this._onDidChange.event;
@@ -101,13 +109,13 @@ export class ModelDataProvider implements vscode.Disposable {
         this._notificationDisposable = null;
         this._clientVersion++;
         this._client = newClient;
-        this.actionRequirements = null;
-        this.modelSummary = null;
-        this.coverageGaps = null;
-        this.dependencyGraph = null;
-        this.stateMachine = null;
-        this.layeredOverview = null;
-        this.endpointErrors.clear();
+        this._actionRequirements = null;
+        this._modelSummary = null;
+        this._coverageGaps = null;
+        this._dependencyGraph = null;
+        this._stateMachine = null;
+        this._layeredOverview = null;
+        this._endpointErrors.clear();
         this._backoff = 0;
         this._skipCount = 0;
         this._fastRetries = MAX_FAST_RETRIES;
@@ -251,8 +259,8 @@ export class ModelDataProvider implements vscode.Disposable {
                         );
                     // Basic shape validation to catch malformed responses.
                     if (actions && typeof actions === "object" && "modelReady" in actions) {
-                        this.actionRequirements = actions;
-                        this.endpointErrors.delete("actionRequirements");
+                        this._actionRequirements = actions;
+                        this._endpointErrors.delete("actionRequirements");
                         anySuccess = true;
                         if (actions.pagination?.hasMore) {
                             console.warn(
@@ -260,18 +268,18 @@ export class ModelDataProvider implements vscode.Disposable {
                                 `(total=${actions.pagination.total}, shown=${actions.actions.length}). ` +
                                 `Pagination not yet implemented — only first page displayed.`
                             );
-                            this.endpointErrors.set(
+                            this._endpointErrors.set(
                                 "actionRequirements",
                                 `Showing ${actions.actions.length} of ${actions.pagination.total} actions`
                             );
                         }
                     } else {
                         console.warn("[ivy-model] ivy/actionRequirements: unexpected shape", actions);
-                        this.endpointErrors.set("actionRequirements", "Malformed response");
+                        this._endpointErrors.set("actionRequirements", "Malformed response");
                     }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/actionRequirements failed:", err);
-                    this.endpointErrors.set("actionRequirements", String(err));
+                    this._endpointErrors.set("actionRequirements", String(err));
                 }
 
                 await delay(250);
@@ -283,16 +291,16 @@ export class ModelDataProvider implements vscode.Disposable {
                             scopeParams,
                         );
                     if (summary && typeof summary === "object" && "rows" in summary && "totals" in summary) {
-                        this.modelSummary = summary;
-                        this.endpointErrors.delete("modelSummary");
+                        this._modelSummary = summary;
+                        this._endpointErrors.delete("modelSummary");
                         anySuccess = true;
                     } else {
                         console.warn("[ivy-model] ivy/modelSummaryTable: unexpected shape", summary);
-                        this.endpointErrors.set("modelSummary", "Malformed response");
+                        this._endpointErrors.set("modelSummary", "Malformed response");
                     }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/modelSummaryTable failed:", err);
-                    this.endpointErrors.set("modelSummary", String(err));
+                    this._endpointErrors.set("modelSummary", String(err));
                 }
 
                 await delay(250);
@@ -303,16 +311,16 @@ export class ModelDataProvider implements vscode.Disposable {
                         scopeParams,
                     );
                     if (gaps && typeof gaps === "object" && "summary" in gaps) {
-                        this.coverageGaps = gaps;
-                        this.endpointErrors.delete("coverageGaps");
+                        this._coverageGaps = gaps;
+                        this._endpointErrors.delete("coverageGaps");
                         anySuccess = true;
                     } else {
                         console.warn("[ivy-model] ivy/coverageGaps: unexpected shape", gaps);
-                        this.endpointErrors.set("coverageGaps", "Malformed response");
+                        this._endpointErrors.set("coverageGaps", "Malformed response");
                     }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/coverageGaps failed:", err);
-                    this.endpointErrors.set("coverageGaps", String(err));
+                    this._endpointErrors.set("coverageGaps", String(err));
                 }
 
                 await delay(250);
@@ -324,16 +332,16 @@ export class ModelDataProvider implements vscode.Disposable {
                             scopeParams,
                         );
                     if (layers && typeof layers === "object" && "layers" in layers) {
-                        this.layeredOverview = layers;
-                        this.endpointErrors.delete("layeredOverview");
+                        this._layeredOverview = layers;
+                        this._endpointErrors.delete("layeredOverview");
                         anySuccess = true;
                     } else {
                         console.warn("[ivy-model] ivy/layeredOverview: unexpected shape", layers);
-                        this.endpointErrors.set("layeredOverview", "Malformed response");
+                        this._endpointErrors.set("layeredOverview", "Malformed response");
                     }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/layeredOverview failed:", err);
-                    this.endpointErrors.set("layeredOverview", String(err));
+                    this._endpointErrors.set("layeredOverview", String(err));
                 }
 
                 if (anySuccess) {
@@ -349,8 +357,8 @@ export class ModelDataProvider implements vscode.Disposable {
                 }
 
                 // Log the state for debugging.
-                const modelReady = this.actionRequirements?.modelReady ?? null;
-                const actionCount = this.actionRequirements?.actions?.length ?? 0;
+                const modelReady = this._actionRequirements?.modelReady ?? null;
+                const actionCount = this._actionRequirements?.actions?.length ?? 0;
                 console.debug(
                     `[ivy-model] refreshNow: modelReady=${modelReady}, actions=${actionCount}, fastRetries=${this._fastRetries}`
                 );
@@ -390,7 +398,7 @@ export class ModelDataProvider implements vscode.Disposable {
                 console.error("[ivy-model] Unexpected error in refreshNow:", outerErr);
                 this._onPollFailure();
                 if (this._backoff >= 3) {
-                    this.endpointErrors.set(
+                    this._endpointErrors.set(
                         "_refresh",
                         `Repeated refresh failure: ${outerErr instanceof Error ? outerErr.message : String(outerErr)}`,
                     );
@@ -426,16 +434,16 @@ export class ModelDataProvider implements vscode.Disposable {
                         scopeParams,
                     );
                 if (graph && typeof graph === "object" && "nodes" in graph && "edges" in graph) {
-                    this.dependencyGraph = graph;
-                    this.endpointErrors.delete("dependencyGraph");
+                    this._dependencyGraph = graph;
+                    this._endpointErrors.delete("dependencyGraph");
                 } else {
                     console.warn("[ivy-model] ivy/actionDependencyGraph: unexpected shape", graph);
-                    this.endpointErrors.set("dependencyGraph", "Malformed response");
+                    this._endpointErrors.set("dependencyGraph", "Malformed response");
                 }
             } catch (err) {
                 console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
-                this.endpointErrors.set("dependencyGraph", String(err));
-                this.dependencyGraph = null;
+                this._endpointErrors.set("dependencyGraph", String(err));
+                this._dependencyGraph = null;
             }
             try {
                 const sm =
@@ -444,16 +452,16 @@ export class ModelDataProvider implements vscode.Disposable {
                         scopeParams,
                     );
                 if (sm && typeof sm === "object" && "nodes" in sm && "transitions" in sm) {
-                    this.stateMachine = sm;
-                    this.endpointErrors.delete("stateMachine");
+                    this._stateMachine = sm;
+                    this._endpointErrors.delete("stateMachine");
                 } else {
                     console.warn("[ivy-model] ivy/stateMachineView: unexpected shape", sm);
-                    this.endpointErrors.set("stateMachine", "Malformed response");
+                    this._endpointErrors.set("stateMachine", "Malformed response");
                 }
             } catch (err) {
                 console.warn("[ivy-model] ivy/stateMachineView failed:", err);
-                this.endpointErrors.set("stateMachine", String(err));
-                this.stateMachine = null;
+                this._endpointErrors.set("stateMachine", String(err));
+                this._stateMachine = null;
             }
             this._onDidChange.fire();
         };
@@ -474,7 +482,7 @@ export class ModelDataProvider implements vscode.Disposable {
                 .getConfiguration("ivy")
                 .get<number>("lsp.panelRequestTimeout", 30) * 1000;
         const timeout =
-            this.actionRequirements === null
+            this._actionRequirements === null
                 ? Math.max(configuredMs, STARTUP_TIMEOUT_MS)
                 : configuredMs;
         return new Promise<T>((resolve, reject) => {
