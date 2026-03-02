@@ -4,56 +4,75 @@
  * Shows inline symbols on lines where Ivy actions are defined,
  * colored by requirement density.  Driven by ModelDataProvider data.
  *
- * - High coverage (>=2 total requirements): green filled circle
- * - Low coverage  (<2 total requirements):  yellow empty circle
+ * - High coverage (>= threshold total requirements): green filled circle
+ * - Low coverage  (<  threshold total requirements): yellow empty circle
+ *
+ * The threshold defaults to 2 and can be configured via the
+ * `ivy.requirements.coverageThreshold` VS Code setting.
  */
 
 import * as vscode from "vscode";
 import { ModelDataProvider } from "../modelDataProvider";
 
+/** Minimum total requirements per action for the green (high) coverage indicator. */
+const DEFAULT_COVERAGE_THRESHOLD = 2;
+
 // ---------------------------------------------------------------------------
-// Decoration types (created once, reused across calls)
+// Decoration types (lazily created on first use)
 // ---------------------------------------------------------------------------
 
-const highCoverageType = vscode.window.createTextEditorDecorationType({
-    gutterIconSize: "contain",
-    overviewRulerColor: new vscode.ThemeColor("charts.green"),
-    overviewRulerLane: vscode.OverviewRulerLane.Left,
-    light: {
-        before: {
-            contentText: "\u25CF", // Filled circle
-            color: new vscode.ThemeColor("charts.green"),
-        },
-    },
-    dark: {
-        before: {
-            contentText: "\u25CF",
-            color: new vscode.ThemeColor("charts.green"),
-        },
-    },
-});
+let _highCoverageType: vscode.TextEditorDecorationType | undefined;
+let _lowCoverageType: vscode.TextEditorDecorationType | undefined;
 
-const lowCoverageType = vscode.window.createTextEditorDecorationType({
-    overviewRulerColor: new vscode.ThemeColor("charts.yellow"),
-    overviewRulerLane: vscode.OverviewRulerLane.Left,
-    light: {
-        before: {
-            contentText: "\u25CB", // Empty circle
-            color: new vscode.ThemeColor("charts.yellow"),
-        },
-    },
-    dark: {
-        before: {
-            contentText: "\u25CB",
-            color: new vscode.ThemeColor("charts.yellow"),
-        },
-    },
-});
+function getHighCoverageType(): vscode.TextEditorDecorationType {
+    if (!_highCoverageType) {
+        _highCoverageType = vscode.window.createTextEditorDecorationType({
+            gutterIconSize: "contain",
+            overviewRulerColor: new vscode.ThemeColor("charts.green"),
+            overviewRulerLane: vscode.OverviewRulerLane.Left,
+            light: {
+                before: {
+                    contentText: "\u25CF", // Filled circle
+                    color: new vscode.ThemeColor("charts.green"),
+                },
+            },
+            dark: {
+                before: {
+                    contentText: "\u25CF",
+                    color: new vscode.ThemeColor("charts.green"),
+                },
+            },
+        });
+    }
+    return _highCoverageType;
+}
+
+function getLowCoverageType(): vscode.TextEditorDecorationType {
+    if (!_lowCoverageType) {
+        _lowCoverageType = vscode.window.createTextEditorDecorationType({
+            overviewRulerColor: new vscode.ThemeColor("charts.yellow"),
+            overviewRulerLane: vscode.OverviewRulerLane.Left,
+            light: {
+                before: {
+                    contentText: "\u25CB", // Empty circle
+                    color: new vscode.ThemeColor("charts.yellow"),
+                },
+            },
+            dark: {
+                before: {
+                    contentText: "\u25CB",
+                    color: new vscode.ThemeColor("charts.yellow"),
+                },
+            },
+        });
+    }
+    return _lowCoverageType;
+}
 
 /** Disposables for the decoration types — push into context.subscriptions. */
 export const requirementDecorationTypes: vscode.Disposable[] = [
-    highCoverageType,
-    lowCoverageType,
+    { dispose() { _highCoverageType?.dispose(); _highCoverageType = undefined; } },
+    { dispose() { _lowCoverageType?.dispose(); _lowCoverageType = undefined; } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -83,9 +102,14 @@ export function applyRequirementDecorations(
     const highRanges: vscode.DecorationOptions[] = [];
     const lowRanges: vscode.DecorationOptions[] = [];
 
+    const threshold = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("requirements.coverageThreshold", DEFAULT_COVERAGE_THRESHOLD);
+
     for (const action of data.actions) {
         // Filter by file -- only decorate actions defined in this editor.
-        if (action.file.toLowerCase() !== filePath.toLowerCase()) {
+        // Use VS Code's URI normalization for platform-aware comparison.
+        if (vscode.Uri.file(action.file).fsPath !== filePath) {
             continue;
         }
         // If a specific action was requested, skip non-matching ones.
@@ -99,15 +123,15 @@ export function applyRequirementDecorations(
         const range = new vscode.Range(line, 0, line, 0);
         const hoverMessage = `${action.actionName}: ${action.counts.total} requirements`;
 
-        if (action.counts.total >= 2) {
+        if (action.counts.total >= threshold) {
             highRanges.push({ range, hoverMessage });
         } else {
             lowRanges.push({ range, hoverMessage });
         }
     }
 
-    editor.setDecorations(highCoverageType, highRanges);
-    editor.setDecorations(lowCoverageType, lowRanges);
+    editor.setDecorations(getHighCoverageType(), highRanges);
+    editor.setDecorations(getLowCoverageType(), lowRanges);
 }
 
 /**
@@ -116,6 +140,6 @@ export function applyRequirementDecorations(
 export function clearRequirementDecorations(
     editor: vscode.TextEditor,
 ): void {
-    editor.setDecorations(highCoverageType, []);
-    editor.setDecorations(lowCoverageType, []);
+    editor.setDecorations(getHighCoverageType(), []);
+    editor.setDecorations(getLowCoverageType(), []);
 }

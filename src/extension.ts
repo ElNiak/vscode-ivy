@@ -51,6 +51,21 @@ import { ModelVisualizationPanel, setModelVisibleCallback } from "./visualizatio
 import { ActivityChannel } from "./activityChannel";
 import { CompilationProgressNotification } from "./monitorTypes";
 
+/**
+ * Sync the active test scope from the LSP server to the model data provider
+ * so visualization requests include the correct testFile param.
+ */
+async function syncTestScope(
+    lspClient: LanguageClient,
+    provider: ModelDataProvider,
+): Promise<void> {
+    const resp = await lspClient.sendRequest<{ activeTest: string | null }>(
+        "ivy/listTests", {}
+    );
+    provider.setActiveTestFile(resp.activeTest);
+    await provider.refreshNow(true);
+}
+
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
 let testScopeStatusBar: vscode.StatusBarItem;
@@ -181,20 +196,13 @@ export async function activate(
             }
             await setActiveTestCommand(client);
             await refreshStatusBar(client, testScopeStatusBar);
-            // Sync active test scope to model data provider so
-            // visualization requests include the correct testFile param.
+            // Sync active test scope to model data provider.
             try {
-                const resp = await client.sendRequest<{ activeTest: string | null }>(
-                    "ivy/listTests", {}
-                );
-                modelDataProvider?.setActiveTestFile(resp.activeTest);
-                await modelDataProvider?.refreshNow(true);
+                if (client && modelDataProvider) {
+                    await syncTestScope(client, modelDataProvider);
+                }
             } catch (err) {
                 console.warn("[ivy-ext] Failed to sync active test after setActiveTest:", err);
-                vscode.window.showWarningMessage(
-                    "Ivy: Test scope changed but visualization data could not be refreshed. " +
-                    "Try 'Ivy: Refresh Requirements' to update."
-                );
             }
         }),
         vscode.commands.registerCommand("ivy.listTests", async () => {
@@ -481,17 +489,13 @@ export async function activate(
                     .get<boolean>("testScope.autoDetect", true);
                 await onActiveEditorChanged(client, editor, autoDetect);
                 await refreshStatusBar(client, testScopeStatusBar);
-                // Sync active test scope to model data provider
+                // Sync active test scope to model data provider.
                 try {
                     if (modelDataProvider && client) {
-                        const resp = await client.sendRequest<{ activeTest: string | null }>(
-                            "ivy/listTests", {}
-                        );
-                        modelDataProvider.setActiveTestFile(resp.activeTest);
-                        await modelDataProvider.refreshNow(true);
+                        await syncTestScope(client, modelDataProvider);
                     }
                 } catch (err) {
-                    console.warn("[ivy-ext] Best-effort test scope sync failed:", err);
+                    console.debug("[ivy-ext] Best-effort test scope sync failed:", err);
                 }
             }, 500);
         })

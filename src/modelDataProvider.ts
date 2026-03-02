@@ -7,7 +7,7 @@
  */
 
 import * as vscode from "vscode";
-import { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClient, State } from "vscode-languageclient/node";
 import {
     ActionRequirementsResponse,
     ModelSummaryResponse,
@@ -138,7 +138,7 @@ export class ModelDataProvider implements vscode.Disposable {
                         if (this._clientVersion !== capturedVersion) {
                             return;
                         }
-                        if (this._client && this._client.state === 2 /* Running */) {
+                        if (this._client && this._client.state === State.Running) {
                             this.refreshNow(true);
                         } else if (readyRetries-- > 0) {
                             console.debug("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
@@ -213,7 +213,7 @@ export class ModelDataProvider implements vscode.Disposable {
             ", client =", this._client ? "present" : "null",
             ", state =", this._client?.state,
             ", modelReadyReceived =", this._modelReadyReceived);
-        if (!this._client || this._client.state !== 2 /* Running */) {
+        if (!this._client || this._client.state !== State.Running) {
             console.debug("[ivy-model] refreshNow: client not ready, state =", this._client?.state);
             return;
         }
@@ -235,7 +235,7 @@ export class ModelDataProvider implements vscode.Disposable {
         const doRefresh = async (): Promise<void> => {
             // Re-check client after serializer deferral — it may have been
             // nulled by setClient(null) while waiting for the lock.
-            if (!this._client || this._client.state !== 2) {
+            if (!this._client || this._client.state !== State.Running) {
                 this._refreshing = false;
                 return;
             }
@@ -260,6 +260,17 @@ export class ModelDataProvider implements vscode.Disposable {
                         this.actionRequirements = actions;
                         this.endpointErrors.delete("actionRequirements");
                         anySuccess = true;
+                        if (actions.pagination?.hasMore) {
+                            console.warn(
+                                `[ivy-model] ivy/actionRequirements returned paginated result ` +
+                                `(total=${actions.pagination.total}, shown=${actions.actions.length}). ` +
+                                `Pagination not yet implemented — only first page displayed.`
+                            );
+                            this.endpointErrors.set(
+                                "actionRequirements",
+                                `Showing ${actions.actions.length} of ${actions.pagination.total} actions`
+                            );
+                        }
                     } else {
                         console.warn("[ivy-model] ivy/actionRequirements: unexpected shape", actions);
                         this.endpointErrors.set("actionRequirements", "Malformed response");
@@ -277,9 +288,14 @@ export class ModelDataProvider implements vscode.Disposable {
                             "ivy/modelSummaryTable",
                             scopeParams,
                         );
-                    this.modelSummary = summary;
-                    this.endpointErrors.delete("modelSummary");
-                    anySuccess = true;
+                    if (summary && typeof summary === "object" && "rows" in summary && "totals" in summary) {
+                        this.modelSummary = summary;
+                        this.endpointErrors.delete("modelSummary");
+                        anySuccess = true;
+                    } else {
+                        console.warn("[ivy-model] ivy/modelSummaryTable: unexpected shape", summary);
+                        this.endpointErrors.set("modelSummary", "Malformed response");
+                    }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/modelSummaryTable failed:", err);
                     this.endpointErrors.set("modelSummary", String(err));
@@ -292,9 +308,14 @@ export class ModelDataProvider implements vscode.Disposable {
                         "ivy/coverageGaps",
                         scopeParams,
                     );
-                    this.coverageGaps = gaps;
-                    this.endpointErrors.delete("coverageGaps");
-                    anySuccess = true;
+                    if (gaps && typeof gaps === "object" && "summary" in gaps) {
+                        this.coverageGaps = gaps;
+                        this.endpointErrors.delete("coverageGaps");
+                        anySuccess = true;
+                    } else {
+                        console.warn("[ivy-model] ivy/coverageGaps: unexpected shape", gaps);
+                        this.endpointErrors.set("coverageGaps", "Malformed response");
+                    }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/coverageGaps failed:", err);
                     this.endpointErrors.set("coverageGaps", String(err));
@@ -308,9 +329,14 @@ export class ModelDataProvider implements vscode.Disposable {
                             "ivy/layeredOverview",
                             scopeParams,
                         );
-                    this.layeredOverview = layers;
-                    this.endpointErrors.delete("layeredOverview");
-                    anySuccess = true;
+                    if (layers && typeof layers === "object" && "layers" in layers) {
+                        this.layeredOverview = layers;
+                        this.endpointErrors.delete("layeredOverview");
+                        anySuccess = true;
+                    } else {
+                        console.warn("[ivy-model] ivy/layeredOverview: unexpected shape", layers);
+                        this.endpointErrors.set("layeredOverview", "Malformed response");
+                    }
                 } catch (err) {
                     console.warn("[ivy-model] ivy/layeredOverview failed:", err);
                     this.endpointErrors.set("layeredOverview", String(err));
@@ -387,7 +413,7 @@ export class ModelDataProvider implements vscode.Disposable {
      * flooding the LSP stdio pipe — graph responses can be large.
      */
     async refreshGraphs(): Promise<void> {
-        if (!this._client || this._client.state !== 2) {
+        if (!this._client || this._client.state !== State.Running) {
             return;
         }
         const doRefresh = async (): Promise<void> => {

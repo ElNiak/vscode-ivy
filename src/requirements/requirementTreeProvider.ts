@@ -12,6 +12,7 @@
  *         +-- (no monitors) (MessageItem)
  */
 
+import * as path from "path";
 import * as vscode from "vscode";
 import { ModelDataProvider } from "../modelDataProvider";
 import { ActionBoundary, RequirementDetail } from "./requirementTypes";
@@ -67,7 +68,15 @@ export class RequirementTreeProvider
         if (!Array.isArray(data.actions) || data.actions.length === 0) {
             return [new MessageItem("No actions found")];
         }
-        return data.actions.map((a) => new ActionItem(a));
+        const items: ReqTreeItem[] = [];
+        if (data.scopeInfo?.scoped) {
+            const scopeLabel = data.scopeInfo.testFile
+                ? `Scoped: ${path.basename(data.scopeInfo.testFile)}`
+                : "Scoped: active test";
+            items.push(new MessageItem(scopeLabel));
+        }
+        items.push(...data.actions.map((a) => new ActionItem(a)));
+        return items;
     }
 
     private _getMonitorGroups(action: ActionBoundary): ReqTreeItem[] {

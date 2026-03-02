@@ -130,6 +130,38 @@ suite("RequirementTreeProvider", () => {
         );
     });
 
+    test("shows scope indicator when scopeInfo.scoped is true", () => {
+        const tree = new RequirementTreeProvider(
+            makeProvider({
+                actionRequirements: {
+                    modelReady: true,
+                    actions: [
+                        {
+                            actionName: "send_pkt",
+                            qualifiedName: "quic.send_pkt",
+                            file: "/path/test.ivy",
+                            line: 10,
+                            direction: "GENERATED",
+                            monitors: { before: [], after: [], direct: [] },
+                            stateVarsRead: [],
+                            stateVarsWritten: [],
+                            rfcTags: [],
+                            counts: { require: 0, ensure: 0, assume: 0, assert: 0, total: 0 },
+                        },
+                    ],
+                    scopeInfo: { testFile: "/path/to/quic_server_test.ivy", scoped: true },
+                },
+            })
+        );
+        const roots = tree.getChildren(undefined);
+        // First item should be the scope indicator, followed by the action.
+        assert.ok(roots.length >= 2, `Expected >= 2 items, got ${roots.length}`);
+        assert.ok(
+            roots[0].label?.toString().includes("Scoped"),
+            `Expected 'Scoped' in first item, got '${roots[0].label}'`
+        );
+    });
+
     test("dispose cleans up event emitter", () => {
         const tree = new RequirementTreeProvider(makeProvider());
         // Should not throw.

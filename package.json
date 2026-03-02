@@ -422,10 +422,10 @@
         },
         "ivy.lsp.compileWorkers": {
           "type": "integer",
-          "default": 1,
-          "minimum": 1,
+          "default": 0,
+          "minimum": 0,
           "maximum": 8,
-          "description": "Maximum number of concurrent Ivy compilation processes. Each process loads Z3 + Ivy (~300-500 MB). Increase on machines with ample RAM."
+          "description": "Maximum number of concurrent Ivy compilation processes. 0 = auto (CPU cores / 4, min 1). Each process loads Z3 + Ivy (~300-500 MB). Increase on machines with ample RAM."
         },
         "ivy.lsp.compileTimeout": {
           "type": "number",
@@ -452,6 +452,12 @@
           "minimum": 5,
           "maximum": 60,
           "description": "Timeout in seconds for stopping the language server. Increase if you see 'Array buffer allocation failed' or 'Shutting down server' errors on large workspaces."
+        },
+        "ivy.requirements.coverageThreshold": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "description": "Minimum number of requirements per action for the green (high) coverage gutter indicator. Actions below this threshold show yellow."
         },
         "ivy.codeLens.enabled": {
           "type": "boolean",
