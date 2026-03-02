@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import { RequirementTreeProvider } from "../../requirements/requirementTreeProvider";
 import { ModelDataProvider } from "../../modelDataProvider";
+import { ActionBoundary, RequirementDetail } from "../../requirements/requirementTypes";
 
 suite("RequirementTreeProvider", () => {
     function makeProvider(
@@ -13,6 +14,37 @@ suite("RequirementTreeProvider", () => {
             provider.actionRequirements = overrides.actionRequirements;
         }
         return provider;
+    }
+
+    function makeRequirement(overrides: Partial<RequirementDetail> = {}): RequirementDetail {
+        return {
+            id: "req-1",
+            kind: "require",
+            mixin_kind: "before",
+            formulaText: "pkt.seq > 0",
+            line: 5,
+            file: "/path/test.ivy",
+            bracketTags: [],
+            stateVarsRead: [],
+            nctClassification: null,
+            ...overrides,
+        };
+    }
+
+    function makeAction(overrides: Partial<ActionBoundary> = {}): ActionBoundary {
+        return {
+            actionName: "send_pkt",
+            qualifiedName: "quic.send_pkt",
+            file: "/path/test.ivy",
+            line: 10,
+            direction: "GENERATED",
+            monitors: { before: [], after: [], around: [], implement: [], direct: [] },
+            stateVarsRead: [],
+            stateVarsWritten: [],
+            rfcTags: [],
+            counts: { require: 0, ensure: 0, assume: 0, assert: 0, total: 0 },
+            ...overrides,
+        };
     }
 
     test("shows 'Waiting for server...' when data is null", () => {
@@ -166,5 +198,138 @@ suite("RequirementTreeProvider", () => {
         const tree = new RequirementTreeProvider(makeProvider());
         // Should not throw.
         tree.dispose();
+    });
+
+    test("expanding action with before+around+after shows 3 monitor groups", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [makeRequirement({ mixin_kind: "before" })],
+                        around: [makeRequirement({ mixin_kind: "around", kind: "ensure" })],
+                        after: [makeRequirement({ mixin_kind: "after", kind: "assume" })],
+                        implement: [],
+                        direct: [],
+                    },
+                    counts: { require: 1, ensure: 1, assume: 1, assert: 0, total: 3 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem, "Should find an ActionItem");
+
+        const groups = tree.getChildren(actionItem);
+        assert.strictEqual(groups.length, 3, "Should show Before, Around, After groups");
+        const labels = groups.map((g) => g.label?.toString());
+        assert.ok(labels.includes("Before"));
+        assert.ok(labels.includes("Around"));
+        assert.ok(labels.includes("After"));
+    });
+
+    test("expanding action with only implement monitors shows Implement group", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [],
+                        around: [],
+                        after: [],
+                        implement: [makeRequirement({ mixin_kind: "implement" })],
+                        direct: [],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        assert.strictEqual(groups.length, 1);
+        assert.ok(groups[0].label?.toString().includes("Implement"));
+    });
+
+    test("expanding action with all empty monitor arrays shows 'No monitors'", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction()],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        assert.strictEqual(groups.length, 1);
+        assert.ok(groups[0].label?.toString().includes("No monitors"));
+    });
+
+    test("expanding monitor group returns requirement items with correct labels", () => {
+        const req1 = makeRequirement({ id: "r1", kind: "require", formulaText: "x > 0" });
+        const req2 = makeRequirement({ id: "r2", kind: "ensure", formulaText: "y < 10" });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req1, req2],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 1, ensure: 1, assume: 0, assert: 0, total: 2 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        assert.strictEqual(groups.length, 1, "Only Before group has items");
+
+        const requirements = tree.getChildren(groups[0]);
+        assert.strictEqual(requirements.length, 2);
+        assert.ok(requirements[0].label?.toString().includes("require: x > 0"));
+        assert.ok(requirements[1].label?.toString().includes("ensure: y < 10"));
+    });
+
+    test("requirement item description includes bracket tags and classification", () => {
+        const req = makeRequirement({
+            bracketTags: ["rfc9000:4.1"],
+            nctClassification: "GUARANTEE",
+            stateVarsRead: ["conn_state"],
+        });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        const items = tree.getChildren(groups[0]);
+        assert.strictEqual(items.length, 1);
+        const desc = (items[0] as any).description as string;
+        assert.ok(desc.includes("rfc9000:4.1"), `Expected RFC tag in description, got: ${desc}`);
+        assert.ok(desc.includes("GUARANTEE"), `Expected classification in description, got: ${desc}`);
+        assert.ok(desc.includes("conn_state"), `Expected state var in description, got: ${desc}`);
     });
 });
