@@ -95,12 +95,30 @@ export class RequirementTreeProvider
                 )
             );
         }
+        if (monitors.around?.length > 0) {
+            groups.push(
+                new MonitorGroupItem(
+                    "Around",
+                    monitors.around,
+                    vscode.TreeItemCollapsibleState.Expanded
+                )
+            );
+        }
         if (monitors.after?.length > 0) {
             groups.push(
                 new MonitorGroupItem(
                     "After",
                     monitors.after,
                     vscode.TreeItemCollapsibleState.Expanded
+                )
+            );
+        }
+        if (monitors.implement?.length > 0) {
+            groups.push(
+                new MonitorGroupItem(
+                    "Implement",
+                    monitors.implement,
+                    vscode.TreeItemCollapsibleState.Collapsed
                 )
             );
         }
@@ -174,22 +192,16 @@ class ActionItem extends vscode.TreeItem {
     }
 }
 
-/** Collapsible group for "Before", "After", or "Direct" monitors. */
+/** Collapsible group for "Before", "Around", "After", "Implement", or "Direct" monitors. */
 class MonitorGroupItem extends vscode.TreeItem {
     constructor(
-        label: string,
+        label: "Before" | "Around" | "After" | "Implement" | "Direct",
         public readonly requirements: RequirementDetail[],
         state: vscode.TreeItemCollapsibleState
     ) {
         super(label, state);
         this.description = `${requirements.length}`;
-        this.iconPath = new vscode.ThemeIcon(
-            label === "Before"
-                ? "arrow-up"
-                : label === "After"
-                  ? "arrow-down"
-                  : "arrow-right"
-        );
+        this.iconPath = new vscode.ThemeIcon(monitorGroupIcon(label));
         this.contextValue = "monitorGroup";
     }
 }
@@ -243,6 +255,7 @@ class MessageItem extends vscode.TreeItem {
     constructor(message: string) {
         super(message, vscode.TreeItemCollapsibleState.None);
         this.iconPath = new vscode.ThemeIcon("info");
+        this.contextValue = "message";
     }
 }
 
@@ -266,8 +279,26 @@ function directionIcon(
     }
 }
 
+/** Map monitor group label to a ThemeIcon identifier. */
+function monitorGroupIcon(label: "Before" | "Around" | "After" | "Implement" | "Direct"): string {
+    switch (label) {
+        case "Before":
+            return "arrow-up";
+        case "Around":
+            return "arrow-swap";
+        case "After":
+            return "arrow-down";
+        case "Implement":
+            return "symbol-method";
+        case "Direct":
+            return "arrow-right";
+        default:
+            return "arrow-right";
+    }
+}
+
 /** Map requirement kind to a ThemeIcon identifier. */
-function requirementKindIcon(kind: string): string {
+function requirementKindIcon(kind: RequirementDetail["kind"]): string {
     switch (kind) {
         case "require":
             return "shield";
