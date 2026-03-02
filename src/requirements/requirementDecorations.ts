@@ -23,6 +23,7 @@ const DEFAULT_COVERAGE_THRESHOLD = 2;
 
 let _highCoverageType: vscode.TextEditorDecorationType | undefined;
 let _lowCoverageType: vscode.TextEditorDecorationType | undefined;
+let _disposed = false;
 
 function getHighCoverageType(): vscode.TextEditorDecorationType {
     if (!_highCoverageType) {
@@ -73,6 +74,7 @@ function getLowCoverageType(): vscode.TextEditorDecorationType {
 export const requirementDecorationTypes: vscode.Disposable[] = [
     { dispose() { _highCoverageType?.dispose(); _highCoverageType = undefined; } },
     { dispose() { _lowCoverageType?.dispose(); _lowCoverageType = undefined; } },
+    { dispose() { _disposed = true; } },
 ];
 
 // ---------------------------------------------------------------------------
@@ -92,6 +94,7 @@ export function applyRequirementDecorations(
     provider: ModelDataProvider,
     actionName?: string,
 ): void {
+    if (_disposed) { return; }
     const data = provider.actionRequirements;
     if (!data || !data.modelReady || !Array.isArray(data.actions)) {
         clearRequirementDecorations(editor);
@@ -140,6 +143,10 @@ export function applyRequirementDecorations(
 export function clearRequirementDecorations(
     editor: vscode.TextEditor,
 ): void {
-    editor.setDecorations(getHighCoverageType(), []);
-    editor.setDecorations(getLowCoverageType(), []);
+    if (_highCoverageType) {
+        editor.setDecorations(_highCoverageType, []);
+    }
+    if (_lowCoverageType) {
+        editor.setDecorations(_lowCoverageType, []);
+    }
 }
