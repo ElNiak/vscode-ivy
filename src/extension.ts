@@ -25,6 +25,7 @@ import {
     compileCommand,
     showModelCommand,
     cancelCommand,
+    recompileAllCommand,
 } from "./ivyActions";
 import {
     createTestScopeStatusBar,
@@ -79,7 +80,7 @@ let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
 let configChangeTimer: ReturnType<typeof setTimeout> | undefined;
 /** Reused across restarts to avoid leaking output channels. */
 let traceOutputChannel: vscode.OutputChannel | undefined;
-/** Global mutex ensuring only one LSP request is in-flight at a time. */
+/** Category-aware serializer: at most one LSP request per category (poll vs. command) in-flight at a time. */
 const requestSerializer = new RequestSerializer();
 /** Disposable for the window/logMessage notification handler.
  *  Wrapped in a proxy disposable so it can be tracked in context.subscriptions
@@ -187,6 +188,13 @@ export async function activate(
                 return;
             }
             showModelCommand(client, uri);
+        }),
+        vscode.commands.registerCommand("ivy.recompileAll", () => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            recompileAllCommand(client);
         }),
         vscode.commands.registerCommand("ivy.cancelOperation", cancelCommand),
         vscode.commands.registerCommand("ivy.setActiveTest", async () => {
@@ -302,7 +310,7 @@ export async function activate(
             );
         }),
         vscode.commands.registerCommand("ivy.refreshRequirements", () =>
-            modelDataProvider?.refreshNow(),
+            modelDataProvider?.refreshNow(true),
         ),
         vscode.commands.registerCommand(
             "ivy.showActionRequirements",
@@ -563,6 +571,9 @@ class ConfigurableErrorHandler implements ErrorHandler {
         if (count && count <= 3) {
             return { action: ErrorAction.Continue };
         }
+        console.error(
+            `[ivy-lsp] Too many errors (${count ?? "?"}), shutting down LSP client.`,
+        );
         return { action: ErrorAction.Shutdown };
     }
 

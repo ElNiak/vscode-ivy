@@ -128,14 +128,12 @@ export class ModelDataProvider implements vscode.Disposable {
                     }
                     this._modelReadyReceived = true;
                     this._clearFastRetryTimer();
-                    this._fastRetries = MAX_FAST_RETRIES;
                     // The notification may arrive while the client is still
                     // transitioning to Running (state 2).  Poll until ready,
                     // but give up after a bounded number of retries.
                     let readyRetries = 15; // 15 * 200ms = 3s max wait
                     const tryRefresh = () => {
-                        // Bail if client was replaced since the notification.
-                        if (this._clientVersion !== capturedVersion) {
+                        if (this._disposed || this._clientVersion !== capturedVersion) {
                             return;
                         }
                         if (this._client && this._client.state === State.Running) {
