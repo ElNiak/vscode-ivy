@@ -12,6 +12,7 @@ import {
     TestFeatureMatrix,
     AnalysisPipelineDetail,
     CompilationProgressNotification,
+    BatchStatusResponse,
 } from "./monitorTypes";
 import { RequestSerializer } from "./requestSerializer";
 
@@ -140,9 +141,10 @@ export class LspStateTracker implements vscode.Disposable {
 
     /** Force an immediate refresh of all cached state.
      *
-     * Requests are sent sequentially with short gaps to avoid flooding
-     * the LSP stdio pipe at startup (which can trigger OOM crashes in
-     * Node.js when many large responses arrive simultaneously).
+     * Prefers the single ``ivy/batchStatus`` endpoint which returns all
+     * monitoring data in one round-trip (eliminates ~1.5s of inter-request
+     * delays).  Falls back to sequential per-endpoint requests if the
+     * server doesn't support the batch endpoint yet.
      */
     async refreshNow(): Promise<void> {
         if (!this.client || this.client.state !== 2 /* Running */) {
@@ -154,111 +156,107 @@ export class LspStateTracker implements vscode.Disposable {
             return;
         }
         const doRefresh = async (): Promise<void> => {
-            // Capture client reference so it cannot become null mid-refresh
-            // if setClient(null) is called while awaiting a response.
             const c = this.client;
             if (!c || c.state !== 2) { return; }
 
-            const delay = (ms: number) =>
-                new Promise<void>((r) => setTimeout(r, ms));
-
+            // Try batch endpoint first (single round-trip)
             try {
-                const status = await c.sendRequest<ServerStatus>(
-                    "ivy/serverStatus",
-                    null
+                const batch = await c.sendRequest<BatchStatusResponse>(
+                    "ivy/batchStatus",
+                    null,
                 );
-                this.serverStatus = status;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
-                this.serverStatus = null;
-            }
-            await delay(250);
+                this.serverStatus = batch.serverStatus;
+                this.indexerStats = batch.indexerStats;
+                this.operationHistory = batch.operationHistory;
+                this.featureStatus = batch.featureStatus;
+                this.deepIndexProgress = batch.deepIndexProgress;
+                this.testFeatureMatrix = batch.testFeatureMatrix;
+                this.pipelineDetail = batch.analysisPipelineDetail;
 
-            try {
-                const stats = await c.sendRequest<IndexerStats>(
-                    "ivy/indexerStats",
-                    null
-                );
-                this.indexerStats = stats;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
-                this.indexerStats = null;
-            }
-            await delay(250);
-
-            try {
-                const history = await c.sendRequest<OperationHistory>(
-                    "ivy/operationHistory",
-                    null
-                );
-                this.operationHistory = history;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
-                this.operationHistory = null;
-            }
-            await delay(250);
-
-            try {
-                const features = await c.sendRequest<FeatureStatus>(
-                    "ivy/featureStatus",
-                    null
-                );
-                this.featureStatus = features;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
-                this.featureStatus = null;
-            }
-            await delay(250);
-
-            try {
-                const deepIndex =
-                    await c.sendRequest<DeepIndexProgress>(
-                        "ivy/deepIndexProgress",
-                        null
-                    );
-                this.deepIndexProgress = deepIndex;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
-                this.deepIndexProgress = null;
-            }
-            await delay(250);
-
-            try {
-                const testMatrix =
-                    await c.sendRequest<TestFeatureMatrix>(
-                        "ivy/testFeatureMatrix",
-                        null
-                    );
-                this.testFeatureMatrix = testMatrix;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
-                this.testFeatureMatrix = null;
-            }
-            await delay(250);
-
-            try {
-                const pipelineDetail =
-                    await c.sendRequest<AnalysisPipelineDetail>(
-                        "ivy/analysisPipelineDetail",
-                        null
-                    );
-                this.pipelineDetail = pipelineDetail;
-            } catch (err) {
-                console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
-                this.pipelineDetail = null;
+                this._checkForStateChanges();
+                this._checkForDeepIndexChanges();
+                this._checkForTier3Changes();
+                this._onDidChange.fire();
+                return;
+            } catch {
+                // Batch endpoint not available — fall back to sequential
+                console.debug("[ivy-tracker] ivy/batchStatus not available, using sequential fallback");
             }
 
-            this._checkForStateChanges();
-            this._checkForDeepIndexChanges();
-            this._checkForTier3Changes();
-            this._onDidChange.fire();
+            await this._refreshSequential(c);
         };
 
         if (this._serializer) {
-            await this._serializer.run(doRefresh);
+            await this._serializer.run(doRefresh, "poll");
         } else {
             await doRefresh();
         }
+    }
+
+    /** Sequential fallback for servers that don't support ivy/batchStatus. */
+    private async _refreshSequential(c: LanguageClient): Promise<void> {
+        const delay = (ms: number) =>
+            new Promise<void>((r) => setTimeout(r, ms));
+
+        try {
+            this.serverStatus = await c.sendRequest<ServerStatus>("ivy/serverStatus", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
+            this.serverStatus = null;
+        }
+        await delay(250);
+
+        try {
+            this.indexerStats = await c.sendRequest<IndexerStats>("ivy/indexerStats", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
+            this.indexerStats = null;
+        }
+        await delay(250);
+
+        try {
+            this.operationHistory = await c.sendRequest<OperationHistory>("ivy/operationHistory", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
+            this.operationHistory = null;
+        }
+        await delay(250);
+
+        try {
+            this.featureStatus = await c.sendRequest<FeatureStatus>("ivy/featureStatus", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
+            this.featureStatus = null;
+        }
+        await delay(250);
+
+        try {
+            this.deepIndexProgress = await c.sendRequest<DeepIndexProgress>("ivy/deepIndexProgress", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
+            this.deepIndexProgress = null;
+        }
+        await delay(250);
+
+        try {
+            this.testFeatureMatrix = await c.sendRequest<TestFeatureMatrix>("ivy/testFeatureMatrix", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
+            this.testFeatureMatrix = null;
+        }
+        await delay(250);
+
+        try {
+            this.pipelineDetail = await c.sendRequest<AnalysisPipelineDetail>("ivy/analysisPipelineDetail", null);
+        } catch (err) {
+            console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
+            this.pipelineDetail = null;
+        }
+
+        this._checkForStateChanges();
+        this._checkForDeepIndexChanges();
+        this._checkForTier3Changes();
+        this._onDidChange.fire();
     }
 
     async sendReindex(): Promise<ActionResult | null> {
@@ -444,7 +442,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }
@@ -470,7 +468,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }
@@ -497,7 +495,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }
@@ -523,7 +521,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }
@@ -624,7 +622,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }
@@ -666,7 +664,7 @@ export class LspStateTracker implements vscode.Disposable {
             }
         };
         if (this._serializer) {
-            await this._serializer.run(doPoll);
+            await this._serializer.run(doPoll, "poll");
         } else {
             await doPoll();
         }

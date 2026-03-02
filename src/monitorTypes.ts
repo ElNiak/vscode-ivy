@@ -177,3 +177,14 @@ export interface CompilationProgressNotification {
     currentFile: string | null;
     success: boolean;
 }
+
+/** Payload of the `ivy/batchStatus` response — all monitoring data in one round-trip. */
+export interface BatchStatusResponse {
+    serverStatus: ServerStatus;
+    indexerStats: IndexerStats;
+    operationHistory: OperationHistory;
+    featureStatus: FeatureStatus;
+    deepIndexProgress: DeepIndexProgress;
+    testFeatureMatrix: TestFeatureMatrix;
+    analysisPipelineDetail: AnalysisPipelineDetail;
+}
