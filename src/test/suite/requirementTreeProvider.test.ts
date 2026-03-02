@@ -118,6 +118,18 @@ suite("RequirementTreeProvider", () => {
         );
     });
 
+    test("shows error state when endpoint has error and no cached data", () => {
+        const mdp = makeProvider();
+        mdp.endpointErrors.set("actionRequirements", "Connection refused");
+        const tree = new RequirementTreeProvider(mdp);
+        const roots = tree.getChildren(undefined);
+        assert.strictEqual(roots.length, 1);
+        assert.ok(
+            roots[0].label?.toString().includes("Error"),
+            `Expected 'Error' in label, got '${roots[0].label}'`
+        );
+    });
+
     test("dispose cleans up event emitter", () => {
         const tree = new RequirementTreeProvider(makeProvider());
         // Should not throw.

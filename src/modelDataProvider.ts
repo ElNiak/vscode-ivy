@@ -61,6 +61,11 @@ export class ModelDataProvider implements vscode.Disposable {
     /** Active test file for scoped visualization requests. */
     private _activeTestFile: string | null = null;
 
+    /** Whether a refresh cycle is currently in progress. */
+    get isRefreshing(): boolean {
+        return this._refreshing;
+    }
+
     /** Per-endpoint error state so UI consumers can show warning indicators. */
     public readonly endpointErrors = new Map<string, string>();
 

@@ -53,7 +53,11 @@ export class RequirementTreeProvider
     }
 
     private _getRootItems(): ReqTreeItem[] {
+        const reqError = this.provider.endpointErrors.get("actionRequirements");
         const data = this.provider.actionRequirements;
+        if (reqError && !data) {
+            return [new MessageItem(`Error: ${reqError}`)];
+        }
         if (!data) {
             return [new MessageItem("Waiting for server...")];
         }
