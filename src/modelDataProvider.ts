@@ -419,24 +419,36 @@ export class ModelDataProvider implements vscode.Disposable {
         const doRefresh = async (): Promise<void> => {
             const scopeParams = this._getScopeParams();
             try {
-                this.dependencyGraph =
+                const graph =
                     await this._sendWithTimeout<ActionDependencyGraphResponse>(
                         "ivy/actionDependencyGraph",
                         scopeParams,
                     );
-                this.endpointErrors.delete("dependencyGraph");
+                if (graph && typeof graph === "object" && "nodes" in graph && "edges" in graph) {
+                    this.dependencyGraph = graph;
+                    this.endpointErrors.delete("dependencyGraph");
+                } else {
+                    console.warn("[ivy-model] ivy/actionDependencyGraph: unexpected shape", graph);
+                    this.endpointErrors.set("dependencyGraph", "Malformed response");
+                }
             } catch (err) {
                 console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
                 this.endpointErrors.set("dependencyGraph", String(err));
                 this.dependencyGraph = null;
             }
             try {
-                this.stateMachine =
+                const sm =
                     await this._sendWithTimeout<StateMachineViewResponse>(
                         "ivy/stateMachineView",
                         scopeParams,
                     );
-                this.endpointErrors.delete("stateMachine");
+                if (sm && typeof sm === "object" && "nodes" in sm && "transitions" in sm) {
+                    this.stateMachine = sm;
+                    this.endpointErrors.delete("stateMachine");
+                } else {
+                    console.warn("[ivy-model] ivy/stateMachineView: unexpected shape", sm);
+                    this.endpointErrors.set("stateMachine", "Malformed response");
+                }
             } catch (err) {
                 console.warn("[ivy-model] ivy/stateMachineView failed:", err);
                 this.endpointErrors.set("stateMachine", String(err));

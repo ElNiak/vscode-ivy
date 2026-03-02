@@ -52,7 +52,7 @@ export interface ActionBoundary {
         before: RequirementDetail[];
         after: RequirementDetail[];
         direct: RequirementDetail[];
-    };
+    } | null;
     stateVarsRead: StateVarDetail[];
     stateVarsWritten: StateVarDetail[];
     rfcTags: string[];
