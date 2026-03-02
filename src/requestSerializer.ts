@@ -23,8 +23,8 @@ export class RequestSerializer {
     /** Run an async function while holding the category-specific lock.
      *
      * If the previous holder doesn't release within `_lockTimeoutMs`,
-     * the queue is drained and the function runs anyway to prevent
-     * permanent deadlock.
+     * the request is rejected with an error to prevent concurrent stdio
+     * writes that cause OOM.
      *
      * @param fn The async function to execute.
      * @param category Request category – defaults to "command".
@@ -37,20 +37,23 @@ export class RequestSerializer {
         const prev = this._queues[category];
         this._queues[category] = gate;
 
-        // Race the previous lock against a timeout to prevent permanent deadlock.
-        const timeout = new Promise<void>((r) => {
-            const timer = setTimeout(() => {
-                console.warn(
-                    `[RequestSerializer] Lock acquisition timed out after ${this._lockTimeoutMs}ms (${category}), draining queue`,
-                );
-                r();
-            }, this._lockTimeoutMs);
+        const timedOut = await new Promise<boolean>((r) => {
+            const timer = setTimeout(() => r(true), this._lockTimeoutMs);
             prev.then(() => {
                 clearTimeout(timer);
-                r();
+                r(false);
             });
         });
-        await timeout;
+
+        if (timedOut) {
+            // Reset queue so future callers don't chain behind the hung entry.
+            this._queues[category] = Promise.resolve();
+            resolve();
+            throw new Error(
+                `[RequestSerializer] Lock acquisition timed out after ${this._lockTimeoutMs}ms (${category}). ` +
+                `Previous request may be hung — skipping to prevent concurrent stdio writes.`,
+            );
+        }
 
         try {
             return await fn();
