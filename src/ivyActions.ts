@@ -138,7 +138,7 @@ async function runAction(
     const channel = getOutputChannel();
     channel.show(true); // preserveFocus
 
-    const filePath = target.uri.replace("file://", "");
+    const filePath = vscode.Uri.parse(target.uri).fsPath;
 
     const { key, defaultSec } = getTimeoutForMethod(method);
     const timeoutSec = vscode.workspace
