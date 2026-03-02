@@ -178,9 +178,14 @@ export class LspStateTracker implements vscode.Disposable {
                 this._checkForTier3Changes();
                 this._onDidChange.fire();
                 return;
-            } catch {
-                // Batch endpoint not available — fall back to sequential
-                console.debug("[ivy-tracker] ivy/batchStatus not available, using sequential fallback");
+            } catch (err: unknown) {
+                const code = (err as { code?: number })?.code;
+                if (code === -32601) {
+                    // MethodNotFound: batch endpoint not supported — expected fallback
+                    console.debug("[ivy-tracker] ivy/batchStatus not available, using sequential fallback");
+                } else {
+                    console.warn("[ivy-tracker] ivy/batchStatus failed unexpectedly, falling back to sequential:", err);
+                }
             }
 
             await this._refreshSequential(c);
@@ -201,56 +206,49 @@ export class LspStateTracker implements vscode.Disposable {
         try {
             this.serverStatus = await c.sendRequest<ServerStatus>("ivy/serverStatus", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/serverStatus failed:", err);
-            this.serverStatus = null;
+            console.warn("[ivy-tracker] refreshNow ivy/serverStatus failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.indexerStats = await c.sendRequest<IndexerStats>("ivy/indexerStats", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/indexerStats failed:", err);
-            this.indexerStats = null;
+            console.warn("[ivy-tracker] refreshNow ivy/indexerStats failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.operationHistory = await c.sendRequest<OperationHistory>("ivy/operationHistory", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/operationHistory failed:", err);
-            this.operationHistory = null;
+            console.warn("[ivy-tracker] refreshNow ivy/operationHistory failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.featureStatus = await c.sendRequest<FeatureStatus>("ivy/featureStatus", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/featureStatus failed:", err);
-            this.featureStatus = null;
+            console.warn("[ivy-tracker] refreshNow ivy/featureStatus failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.deepIndexProgress = await c.sendRequest<DeepIndexProgress>("ivy/deepIndexProgress", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/deepIndexProgress failed:", err);
-            this.deepIndexProgress = null;
+            console.warn("[ivy-tracker] refreshNow ivy/deepIndexProgress failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.testFeatureMatrix = await c.sendRequest<TestFeatureMatrix>("ivy/testFeatureMatrix", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed:", err);
-            this.testFeatureMatrix = null;
+            console.warn("[ivy-tracker] refreshNow ivy/testFeatureMatrix failed (preserving last state):", err);
         }
         await delay(250);
 
         try {
             this.pipelineDetail = await c.sendRequest<AnalysisPipelineDetail>("ivy/analysisPipelineDetail", null);
         } catch (err) {
-            console.debug("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed:", err);
-            this.pipelineDetail = null;
+            console.warn("[ivy-tracker] refreshNow ivy/analysisPipelineDetail failed (preserving last state):", err);
         }
 
         this._checkForStateChanges();
@@ -261,14 +259,14 @@ export class LspStateTracker implements vscode.Disposable {
 
     async sendReindex(): Promise<ActionResult | null> {
         if (!this.client) {
-            return { success: false, message: "LSP server is not connected" };
+            return null;
         }
         return this.client.sendRequest<ActionResult>("ivy/reindex", null);
     }
 
     async sendClearCache(): Promise<ActionResult | null> {
         if (!this.client) {
-            return { success: false, message: "LSP server is not connected" };
+            return null;
         }
         return this.client.sendRequest<ActionResult>("ivy/clearCache", null);
     }
