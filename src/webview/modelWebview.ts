@@ -277,51 +277,66 @@ function renderLayers(data: {
 // ---------------------------------------------------------------------------
 
 window.addEventListener("message", (event) => {
-    const msg = event.data;
-    switch (msg.type) {
-        case "updateDependencyGraph": {
-            const container = document.getElementById("graph-container");
-            if (container && msg.data) {
-                if (depGraph) {
-                    depGraph.destroy();
+    try {
+        const msg = event.data;
+        switch (msg.type) {
+            case "updateDependencyGraph": {
+                const container = document.getElementById("graph-container");
+                if (container && msg.data) {
+                    if (depGraph) {
+                        depGraph.destroy();
+                    }
+                    depGraph = createDependencyGraph(
+                        container,
+                        msg.data,
+                        navigateToSource,
+                    );
                 }
-                depGraph = createDependencyGraph(
-                    container,
-                    msg.data,
-                    navigateToSource,
-                );
+                break;
             }
-            break;
-        }
-        case "updateStateMachine": {
-            const container = document.getElementById(
-                "state-machine-container",
-            );
-            if (container && msg.data) {
-                if (smGraph) {
-                    smGraph.destroy();
+            case "updateStateMachine": {
+                const container = document.getElementById(
+                    "state-machine-container",
+                );
+                if (container && msg.data) {
+                    if (smGraph) {
+                        smGraph.destroy();
+                    }
+                    smGraph = createStateMachineGraph(
+                        container,
+                        msg.data,
+                        navigateToSource,
+                    );
                 }
-                smGraph = createStateMachineGraph(
-                    container,
-                    msg.data,
-                    navigateToSource,
-                );
+                break;
             }
-            break;
+            case "updateModelSummary":
+                if (msg.data) {
+                    renderSummaryTable(msg.data);
+                }
+                break;
+            case "updateLayeredOverview":
+                if (msg.data) {
+                    renderLayers(msg.data);
+                }
+                break;
+            case "updateActionRequirements":
+                // Rendered in the Requirements tree view, not this webview.
+                console.debug("[ivy-webview] actionRequirements received (rendered in tree view)");
+                break;
+            case "updateCoverageGaps":
+                // Rendered in the Requirements tree view, not this webview.
+                console.debug("[ivy-webview] coverageGaps received (rendered in tree view)");
+                break;
+            case "ping":
+                vscode.postMessage({ type: "pong" });
+                break;
+            default:
+                console.warn("[ivy-webview] Unhandled message type:", msg.type);
+                break;
         }
-        case "updateModelSummary":
-            if (msg.data) {
-                renderSummaryTable(msg.data);
-            }
-            break;
-        case "updateLayeredOverview":
-            if (msg.data) {
-                renderLayers(msg.data);
-            }
-            break;
-        case "ping":
-            vscode.postMessage({ type: "pong" });
-            break;
+    } catch (err) {
+        console.error("[ivy-webview] Error handling message:", err);
     }
 });
 
