@@ -183,18 +183,20 @@ export class MonitorTreeProvider
         const s = this.tracker.serverStatus;
         const stats = this.tracker.indexerStats;
 
-        const stateLabel =
-            s?.indexingState === "indexing"
+        const stateLabel = !s
+            ? "Waiting for server..."
+            : s.indexingState === "indexing"
                 ? "Indexing..."
-                : s?.indexingState === "error"
-                  ? `Error: ${s.indexingError}`
-                  : "Complete";
-        const stateIcon =
-            s?.indexingState === "indexing"
+                : s.indexingState === "error"
+                    ? `Error: ${s.indexingError}`
+                    : "Complete";
+        const stateIcon = !s
+            ? "circle-outline"
+            : s.indexingState === "indexing"
                 ? "sync~spin"
-                : s?.indexingState === "error"
-                  ? "error"
-                  : "pass";
+                : s.indexingState === "error"
+                    ? "error"
+                    : "pass";
 
         const status = new MonitorItem(
             `Status: ${stateLabel}`,
