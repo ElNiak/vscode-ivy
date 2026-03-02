@@ -16,6 +16,10 @@ describe("escapeHtml", () => {
     it("returns safe text unchanged", () => {
         assert.strictEqual(escapeHtml("hello world"), "hello world");
     });
+
+    it("escapes single quotes", () => {
+        assert.strictEqual(escapeHtml("it's"), "it&#x27;s");
+    });
 });
 
 describe("getNonce", () => {

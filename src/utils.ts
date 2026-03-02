@@ -4,7 +4,8 @@ export function escapeHtml(text: string): string {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#x27;");
 }
 
 /** Generate a random 32-character nonce for Content-Security-Policy. */
