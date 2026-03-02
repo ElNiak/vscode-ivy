@@ -169,3 +169,11 @@ export interface ServerReadyNotification {
     mode: "full" | "light";
     indexingDuration: number;
 }
+
+/** Payload of the `ivy/compilationProgress` server notification. */
+export interface CompilationProgressNotification {
+    completed: number;
+    total: number;
+    currentFile: string | null;
+    success: boolean;
+}

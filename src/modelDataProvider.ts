@@ -139,7 +139,10 @@ export class ModelDataProvider implements vscode.Disposable {
                             console.debug("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
                             setTimeout(tryRefresh, 200);
                         } else {
-                            console.warn("[ivy-model] modelReady: gave up waiting for client Running state");
+                            console.warn(
+                                "[ivy-model] modelReady: client did not reach Running state after 3s.",
+                                "Model data will be fetched when the safety timer fires or on manual refresh."
+                            );
                         }
                     };
                     tryRefresh();
@@ -154,7 +157,10 @@ export class ModelDataProvider implements vscode.Disposable {
             this._safetyTimer = setTimeout(() => {
                 this._safetyTimer = null;
                 if (this._clientVersion === capturedVersion && !this._modelReadyReceived) {
-                    console.warn("[ivy-model] No ivy/modelReady after 180s, forcing refresh");
+                    console.warn(
+                        "[ivy-model] No ivy/modelReady after 180s, forcing refresh.",
+                        "Model data may be incomplete if indexing is still in progress."
+                    );
                     this._modelReadyReceived = true;
                     this.refreshNow(true);
                 }
@@ -309,6 +315,12 @@ export class ModelDataProvider implements vscode.Disposable {
                     this._onPollSuccess();
                 } else {
                     this._onPollFailure();
+                    if (this._backoff >= 3) {
+                        console.warn(
+                            "[ivy-model] All model endpoints failed for",
+                            this._backoff, "consecutive cycles"
+                        );
+                    }
                 }
 
                 // Log the state for debugging.
@@ -349,6 +361,9 @@ export class ModelDataProvider implements vscode.Disposable {
                 }
 
                 this._onDidChange.fire();
+            } catch (outerErr) {
+                console.error("[ivy-model] Unexpected error in refreshNow:", outerErr);
+                this._onPollFailure();
             } finally {
                 this._refreshing = false;
             }

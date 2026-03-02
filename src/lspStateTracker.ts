@@ -11,6 +11,7 @@ import {
     DeepIndexProgress,
     TestFeatureMatrix,
     AnalysisPipelineDetail,
+    CompilationProgressNotification,
 } from "./monitorTypes";
 import { RequestSerializer } from "./requestSerializer";
 
@@ -112,6 +113,28 @@ export class LspStateTracker implements vscode.Disposable {
         if (this._visible) {
             this._startDeferredTimers();
             this.refreshNow();
+        }
+    }
+
+    /** Handle a push notification from the server with real-time compilation progress.
+     *
+     * Updates the cached ``pipelineDetail.compilation`` in-place so the
+     * monitoring tree/dashboard reflects T3 progress immediately instead
+     * of waiting for the next 3 s polling cycle.
+     */
+    handleCompilationProgress(params: CompilationProgressNotification): void {
+        if (this.pipelineDetail) {
+            this.pipelineDetail.compilation.completed = params.completed;
+            this.pipelineDetail.compilation.total = params.total;
+            // Heuristic: derive running from progress counts. The next 3 s poll
+            // cycle will reconcile with the server-authoritative value.
+            this.pipelineDetail.compilation.running = params.completed < params.total;
+            if (params.currentFile !== null) {
+                this.pipelineDetail.tier3.currentFile = params.currentFile;
+            }
+            this._onDidChange.fire();
+        } else {
+            console.debug("[ivy-tracker] compilationProgress dropped: pipelineDetail not yet available");
         }
     }
 
@@ -240,14 +263,14 @@ export class LspStateTracker implements vscode.Disposable {
 
     async sendReindex(): Promise<ActionResult | null> {
         if (!this.client) {
-            return null;
+            return { success: false, message: "LSP server is not connected" };
         }
         return this.client.sendRequest<ActionResult>("ivy/reindex", null);
     }
 
     async sendClearCache(): Promise<ActionResult | null> {
         if (!this.client) {
-            return null;
+            return { success: false, message: "LSP server is not connected" };
         }
         return this.client.sendRequest<ActionResult>("ivy/clearCache", null);
     }
@@ -547,9 +570,12 @@ export class LspStateTracker implements vscode.Disposable {
                 )
                 .then((action) => {
                     if (action === "Re-index") {
-                        this.sendReindex().catch((e) =>
-                            console.warn("[ivy-tracker] reindex failed:", e),
-                        );
+                        this.sendReindex().catch((e) => {
+                            console.warn("[ivy-tracker] reindex failed:", e);
+                            vscode.window.showErrorMessage(
+                                `Ivy: Re-index failed \u2014 ${e instanceof Error ? e.message : String(e)}`
+                            );
+                        });
                     }
                 });
         }

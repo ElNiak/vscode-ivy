@@ -49,6 +49,7 @@ import {
 } from "./requirements/requirementDecorations";
 import { ModelVisualizationPanel, setModelVisibleCallback } from "./visualization/modelVisualizationPanel";
 import { ActivityChannel } from "./activityChannel";
+import { CompilationProgressNotification } from "./monitorTypes";
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -190,6 +191,10 @@ export async function activate(
                 await modelDataProvider?.refreshNow(true);
             } catch (err) {
                 console.warn("[ivy-ext] Failed to sync active test after setActiveTest:", err);
+                vscode.window.showWarningMessage(
+                    "Ivy: Test scope changed but visualization data could not be refreshed. " +
+                    "Try 'Ivy: Refresh Requirements' to update."
+                );
             }
         }),
         vscode.commands.registerCommand("ivy.listTests", async () => {
@@ -426,6 +431,7 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.restartWindow") ||
                 e.affectsConfiguration("ivy.lsp.includePaths") ||
                 e.affectsConfiguration("ivy.lsp.excludePaths") ||
+                e.affectsConfiguration("ivy.lsp.parseWorkers") ||
                 e.affectsConfiguration("ivy.codeLens.enabled") ||
                 e.affectsConfiguration("ivy.codeLens.rfcCoverage") ||
                 e.affectsConfiguration("ivy.lsp.bulkAnalysis") ||
@@ -485,7 +491,7 @@ export async function activate(
                         await modelDataProvider.refreshNow(true);
                     }
                 } catch (err) {
-                    console.debug("[ivy-ext] Best-effort test scope sync failed:", err);
+                    console.warn("[ivy-ext] Best-effort test scope sync failed:", err);
                 }
             }, 500);
         })
@@ -830,6 +836,12 @@ async function startWithPython(
         stateTracker?.onServerReady();
     });
 
+    // Push-based T3 compilation progress — supplements the 3 s polling cycle
+    // so the dashboard / tree view updates in real time during bulk compilation.
+    client.onNotification("ivy/compilationProgress", (params: CompilationProgressNotification) => {
+        stateTracker?.handleCompilationProgress(params);
+    });
+
     try {
         console.debug("[ivy-ext] calling client.start()...");
         await client.start();
@@ -883,7 +895,7 @@ async function stopClient(): Promise<void> {
                     .get<number>("lsp.stopTimeout", 30) * 1000;
             await client.stop(stopMs);
         } catch (err) {
-            console.debug("[ivy-ext] stopClient error:", err);
+            console.warn("[ivy-ext] stopClient error (server may have already exited):", err);
         }
         client = undefined;
     }

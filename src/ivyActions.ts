@@ -40,6 +40,15 @@ export function cancelCommand(): void {
 
 // ---- Helpers ----
 
+/** Map LSP method to the corresponding timeout setting key and default value. */
+function getTimeoutForMethod(method: string): { key: string; defaultSec: number } {
+    if (method === "ivy/verify") {
+        return { key: "tools.verifyTimeout", defaultSec: 120 };
+    }
+    // ivy/compile, ivy/showModel, and any future tool actions
+    return { key: "tools.compileTimeout", defaultSec: 300 };
+}
+
 async function getTargetUri(
     resourceUri?: vscode.Uri
 ): Promise<{ uri: string; position?: vscode.Position } | undefined> {
@@ -66,7 +75,15 @@ async function autoSave(): Promise<void> {
             editor.document.isDirty &&
             editor.document.languageId === "ivy"
         ) {
-            await editor.document.save();
+            try {
+                await editor.document.save();
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn("[ivy-actions] autoSave failed:", err);
+                vscode.window.showWarningMessage(
+                    `Ivy: Could not save file before action \u2014 ${msg}`
+                );
+            }
         }
     }
 }
@@ -123,6 +140,13 @@ async function runAction(
 
     const filePath = target.uri.replace("file://", "");
 
+    const { key, defaultSec } = getTimeoutForMethod(method);
+    const timeoutSec = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>(key, defaultSec);
+    const timeoutMs = timeoutSec * 1000;
+    let timedOut = false;
+
     try {
         const requestParams: Record<string, unknown> = {
             textDocument: { uri: target.uri },
@@ -135,12 +159,22 @@ async function runAction(
                 character: target.position.character,
             };
         }
-
-        const result = await client.sendRequest<IvyToolResult>(
+        const request = client.sendRequest<IvyToolResult>(
             method,
             requestParams,
             activeCts.token
         );
+        const timeout = new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => {
+                timedOut = true;
+                try { activeCts?.cancel(); } catch { /* already disposed */ }
+                reject(new Error(`Timed out after ${timeoutSec}s`));
+            }, timeoutMs);
+            // Clean up timer if request finishes first.
+            request.then(() => clearTimeout(timer), () => clearTimeout(timer));
+        });
+
+        const result = await Promise.race([request, timeout]);
 
         formatResult(channel, label, filePath, result);
 
@@ -154,7 +188,12 @@ async function runAction(
 
         return result;
     } catch (err) {
-        if (activeCts?.token.isCancellationRequested) {
+        if (timedOut) {
+            channel.appendLine(`[Timeout] Timed out after ${timeoutSec}s`);
+            vscode.window.showWarningMessage(
+                `Ivy: ${label} timed out after ${timeoutSec}s`
+            );
+        } else if (activeCts?.token.isCancellationRequested) {
             channel.appendLine("[Cancelled]");
         } else {
             const msg = err instanceof Error ? err.message : String(err);

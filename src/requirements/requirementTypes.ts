@@ -266,7 +266,7 @@ export interface LayeredOverviewResponse {
 }
 
 // ---------------------------------------------------------------------------
-// ivy/smartSuggestions
+// ivy/smartSuggestions  (reserved for future use — endpoint not yet wired)
 // ---------------------------------------------------------------------------
 
 /** A context-aware suggestion from the semantic model. */
