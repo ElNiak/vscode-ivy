@@ -53,7 +53,7 @@ export class ModelDataProvider implements vscode.Disposable {
     private _slowRetries = 0;
     /** True after a "model not ready" warning has been shown, to avoid spam. */
     private _modelNotReadyWarningShown = false;
-    /** Handle for the 90-second safety fallback timer, so it can be cancelled on dispose. */
+    /** Handle for the 180-second safety fallback timer, so it can be cancelled on dispose. */
     private _safetyTimer: ReturnType<typeof setTimeout> | null = null;
     /** Set to true once dispose() is called; prevents stale callbacks from firing. */
     private _disposed = false;
@@ -395,6 +395,13 @@ export class ModelDataProvider implements vscode.Disposable {
             } catch (outerErr) {
                 console.error("[ivy-model] Unexpected error in refreshNow:", outerErr);
                 this._onPollFailure();
+                if (this._backoff >= 3) {
+                    this.endpointErrors.set(
+                        "_refresh",
+                        `Repeated refresh failure: ${outerErr instanceof Error ? outerErr.message : String(outerErr)}`,
+                    );
+                    this._onDidChange.fire();
+                }
             } finally {
                 this._refreshing = false;
             }
