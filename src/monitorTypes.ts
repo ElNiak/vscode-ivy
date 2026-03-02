@@ -86,6 +86,12 @@ export interface AnalysisPipelineState {
     bulkAnalysisRunning: boolean;
     bulkAnalysisTotal: number;
     bulkAnalysisCompleted: number;
+    bulkCompileRunning: boolean;
+    bulkCompileTotal: number;
+    bulkCompileCompleted: number;
+    cachedFiles: number;
+    activeProcesses: number;
+    maxConcurrent: number;
 }
 
 export interface FeatureStatus {
