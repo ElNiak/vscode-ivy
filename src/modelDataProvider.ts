@@ -41,7 +41,7 @@ export class ModelDataProvider implements vscode.Disposable {
     /** Version counter incremented on each setClient() to invalidate stale modelReady retry timers. */
     private _clientVersion = 0;
 
-    /** Exponential backoff: number of consecutive failures (0 = healthy). */
+    /** Linear backoff: number of consecutive failures (0 = healthy). */
     private _backoff = 0;
     /** Skip counter: decremented each poll cycle; polls are skipped while > 0. */
     private _skipCount = 0;
@@ -226,13 +226,9 @@ export class ModelDataProvider implements vscode.Disposable {
         if (!force && this._shouldSkip()) {
             return;
         }
-        // Guard against concurrent calls (overlap from timer + fast retry).
-        if (this._refreshing) {
-            return;
-        }
-        this._refreshing = true;
-
         const doRefresh = async (): Promise<void> => {
+            if (this._refreshing) { return; }
+            this._refreshing = true;
             // Re-check client after serializer deferral — it may have been
             // nulled by setClient(null) while waiting for the lock.
             if (!this._client || this._client.state !== State.Running) {
