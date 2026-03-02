@@ -67,30 +67,35 @@ export class RequirementTreeProvider
     }
 
     private _getMonitorGroups(action: ActionBoundary): ReqTreeItem[] {
+        const monitors = action.monitors;
+        if (!monitors) {
+            return [new MessageItem("No monitors")];
+        }
+
         const groups: ReqTreeItem[] = [];
-        if (action.monitors.before.length > 0) {
+        if (monitors.before?.length > 0) {
             groups.push(
                 new MonitorGroupItem(
                     "Before",
-                    action.monitors.before,
+                    monitors.before,
                     vscode.TreeItemCollapsibleState.Expanded
                 )
             );
         }
-        if (action.monitors.after.length > 0) {
+        if (monitors.after?.length > 0) {
             groups.push(
                 new MonitorGroupItem(
                     "After",
-                    action.monitors.after,
+                    monitors.after,
                     vscode.TreeItemCollapsibleState.Expanded
                 )
             );
         }
-        if (action.monitors.direct.length > 0) {
+        if (monitors.direct?.length > 0) {
             groups.push(
                 new MonitorGroupItem(
                     "Direct",
-                    action.monitors.direct,
+                    monitors.direct,
                     vscode.TreeItemCollapsibleState.Collapsed
                 )
             );
