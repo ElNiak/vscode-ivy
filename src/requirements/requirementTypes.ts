@@ -279,7 +279,7 @@ export interface LayeredOverviewResponse {
 }
 
 // ---------------------------------------------------------------------------
-// ivy/smartSuggestions  (reserved for future use — endpoint not yet wired)
+// ivy/smartSuggestions  (server handler registered at visualization.py:895-979; client not yet wired)
 // ---------------------------------------------------------------------------
 
 /** A context-aware suggestion from the semantic model. */

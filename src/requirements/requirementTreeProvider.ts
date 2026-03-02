@@ -215,13 +215,13 @@ class RequirementItem extends vscode.TreeItem {
         );
 
         const parts: string[] = [];
-        if (req.bracketTags.length > 0) {
+        if (req.bracketTags?.length > 0) {
             parts.push(req.bracketTags.join(", "));
         }
         if (req.nctClassification) {
             parts.push(`[${req.nctClassification}]`);
         }
-        if (req.stateVarsRead.length > 0) {
+        if (req.stateVarsRead?.length > 0) {
             parts.push(`reads: ${req.stateVarsRead.join(", ")}`);
         }
         this.description = parts.join(" | ");
@@ -264,7 +264,7 @@ class MessageItem extends vscode.TreeItem {
 // ---------------------------------------------------------------------------
 
 /** Map action direction to a ThemeIcon identifier. */
-function directionIcon(
+export function directionIcon(
     direction: "GENERATED" | "RECEIVED" | "INTERNAL" | null
 ): string {
     switch (direction) {
@@ -280,7 +280,7 @@ function directionIcon(
 }
 
 /** Map monitor group label to a ThemeIcon identifier. */
-function monitorGroupIcon(label: "Before" | "Around" | "After" | "Implement" | "Direct"): string {
+export function monitorGroupIcon(label: "Before" | "Around" | "After" | "Implement" | "Direct"): string {
     switch (label) {
         case "Before":
             return "arrow-up";
@@ -298,7 +298,7 @@ function monitorGroupIcon(label: "Before" | "Around" | "After" | "Implement" | "
 }
 
 /** Map requirement kind to a ThemeIcon identifier. */
-function requirementKindIcon(kind: RequirementDetail["kind"]): string {
+export function requirementKindIcon(kind: RequirementDetail["kind"]): string {
     switch (kind) {
         case "require":
             return "shield";

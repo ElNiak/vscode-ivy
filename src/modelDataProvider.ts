@@ -145,7 +145,8 @@ export class ModelDataProvider implements vscode.Disposable {
                             return;
                         }
                         if (this._client && this._client.state === State.Running) {
-                            this.refreshNow(true);
+                            this.refreshNow(true).catch((e) =>
+                                console.warn("[ivy-model] modelReady refresh failed:", e));
                         } else if (readyRetries-- > 0) {
                             console.debug("[ivy-model] modelReady: client state =", this._client?.state, ", deferring 200ms");
                             setTimeout(tryRefresh, 200);
@@ -368,7 +369,11 @@ export class ModelDataProvider implements vscode.Disposable {
                 this._clearFastRetryTimer();
                 if (!modelReady && this._fastRetries > 0) {
                     this._fastRetries--;
-                    this._fastRetryTimer = setTimeout(() => this.refreshNow(true), FAST_RETRY_MS);
+                    this._fastRetryTimer = setTimeout(
+                        () => this.refreshNow(true).catch((e) =>
+                            console.warn("[ivy-model] Fast retry failed:", e)),
+                        FAST_RETRY_MS,
+                    );
                 } else if (!modelReady && this._fastRetries <= 0) {
                     // Fast retries exhausted — fall back to slower retries
                     // instead of stopping entirely.
@@ -385,7 +390,8 @@ export class ModelDataProvider implements vscode.Disposable {
                         );
                     }
                     this._fastRetryTimer = setTimeout(
-                        () => this.refreshNow(true),
+                        () => this.refreshNow(true).catch((e) =>
+                            console.warn("[ivy-model] Slow retry failed:", e)),
                         SLOW_RETRY_MS,
                     );
                 } else if (modelReady) {
@@ -410,7 +416,11 @@ export class ModelDataProvider implements vscode.Disposable {
         };
 
         if (this._serializer) {
-            await this._serializer.run(doRefresh);
+            try {
+                await this._serializer.run(doRefresh);
+            } catch (serializerErr) {
+                console.warn("[ivy-model] Serializer rejected in refreshNow:", serializerErr);
+            }
         } else {
             await doRefresh();
         }
@@ -422,9 +432,11 @@ export class ModelDataProvider implements vscode.Disposable {
      * flooding the LSP stdio pipe — graph responses can be large.
      */
     async refreshGraphs(): Promise<void> {
+        if (this._disposed) { return; }
         if (!this._client || this._client.state !== State.Running) {
             return;
         }
+        if (!this._modelReadyReceived) { return; }
         const doRefresh = async (): Promise<void> => {
             const scopeParams = this._getScopeParams();
             try {
@@ -466,7 +478,11 @@ export class ModelDataProvider implements vscode.Disposable {
             this._onDidChange.fire();
         };
         if (this._serializer) {
-            await this._serializer.run(doRefresh);
+            try {
+                await this._serializer.run(doRefresh);
+            } catch (serializerErr) {
+                console.warn("[ivy-model] Serializer rejected in refreshGraphs:", serializerErr);
+            }
         } else {
             await doRefresh();
         }
@@ -522,13 +538,29 @@ export class ModelDataProvider implements vscode.Disposable {
         return false;
     }
 
+    /** Trigger a one-shot immediate fetch, bypassing the 30s poll timer.
+     *
+     * Useful when switching to a new `.ivy` editor tab where cached model
+     * data may be stale or missing — avoids waiting for the next poll cycle.
+     */
+    triggerImmediateFetch(): void {
+        if (this._disposed) { return; }
+        if (!this._client || this._client.state !== State.Running) { return; }
+        this.refreshNow(true).catch((e) =>
+            console.warn("[ivy-model] triggerImmediateFetch failed:", e));
+    }
+
     private _startPolling(): void {
         if (this._timer) {
             return;
         }
         // Don't call refreshNow() immediately — wait for modelReady
         // notification or explicit user interaction to avoid startup storm.
-        this._timer = setInterval(() => this.refreshNow(), POLL_INTERVAL_MS);
+        this._timer = setInterval(
+            () => this.refreshNow().catch((e) =>
+                console.warn("[ivy-model] Polling refresh failed:", e)),
+            POLL_INTERVAL_MS,
+        );
     }
 
     private _clearFastRetryTimer(): void {

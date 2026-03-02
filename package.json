@@ -153,6 +153,11 @@
         "icon": "$(bug)"
       },
       {
+        "command": "ivy.recompileAll",
+        "title": "Ivy: Recompile All Tests",
+        "icon": "$(sync)"
+      },
+      {
         "command": "ivy.openModelVisualization",
         "title": "Ivy: Open Model Visualization",
         "icon": "$(graph)"
@@ -161,6 +166,21 @@
         "command": "ivy.showActionRequirements",
         "title": "Ivy: Show Action Requirements",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "ivy.navigateToInclude",
+        "title": "Ivy: Navigate to Included File",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "ivy.showPropertyDetails",
+        "title": "Ivy: Show Property Details",
+        "icon": "$(symbol-property)"
+      },
+      {
+        "command": "ivy.showRfcDetails",
+        "title": "Ivy: Show RFC Details",
+        "icon": "$(bookmark)"
       },
       {
         "command": "ivy.refreshRequirements",
@@ -403,7 +423,7 @@
           "default": 0,
           "minimum": 0,
           "maximum": 16,
-          "description": "Number of parallel worker processes for deep indexing. 0 = auto (half CPU cores), 1 = serial."
+          "description": "Number of parallel worker processes for deep indexing. 0 = auto (half CPU cores), 1 = serial (enables full T2/T3 semantic analysis). Parallel mode uses light-mode extraction only."
         },
         "ivy.lsp.bulkAnalysis": {
           "type": "boolean",

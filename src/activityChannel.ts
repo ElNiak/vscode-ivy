@@ -70,7 +70,8 @@ export class ActivityChannel implements vscode.Disposable {
             humanMessage = rest.substring(0, pipeIdx);
             try {
                 payload = JSON.parse(rest.substring(pipeIdx + 3));
-            } catch {
+            } catch (parseErr) {
+                console.debug("[ivy-activity] Failed to parse JSON payload:", parseErr);
                 humanMessage = rest;
             }
         } else {

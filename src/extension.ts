@@ -330,6 +330,104 @@ export async function activate(
                 }
             },
         ),
+        vscode.commands.registerCommand(
+            "ivy.navigateToInclude",
+            async (includeName?: string) => {
+                if (!client || !includeName) {
+                    return;
+                }
+                try {
+                    const fromUri = vscode.window.activeTextEditor?.document.uri.toString();
+                    const resp = await client.sendRequest<{
+                        resolved?: string;
+                        uri?: string;
+                        error?: string;
+                    }>("ivy.navigateToInclude", [includeName, fromUri]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    if (resp.uri) {
+                        const doc = await vscode.workspace.openTextDocument(
+                            vscode.Uri.parse(resp.uri),
+                        );
+                        await vscode.window.showTextDocument(doc);
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.navigateToInclude failed:", err);
+                    vscode.window.showWarningMessage(
+                        "Ivy: Failed to navigate to included file.",
+                    );
+                }
+            },
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showPropertyDetails",
+            async (propertyId?: string) => {
+                if (!client || !propertyId) {
+                    return;
+                }
+                try {
+                    const resp = await client.sendRequest<{
+                        id?: string;
+                        kind?: string;
+                        file?: string;
+                        line?: number;
+                        error?: string;
+                    }>("ivy.showPropertyDetails", [propertyId]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    if (resp.file) {
+                        const doc = await vscode.workspace.openTextDocument(
+                            vscode.Uri.file(resp.file),
+                        );
+                        const line = resp.line ?? 0;
+                        await vscode.window.showTextDocument(doc, {
+                            selection: new vscode.Range(line, 0, line, 0),
+                        });
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.showPropertyDetails failed:", err);
+                }
+            },
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showRfcDetails",
+            async (tag?: string) => {
+                if (!client || !tag) {
+                    return;
+                }
+                try {
+                    const resp = await client.sendRequest<{
+                        id?: string;
+                        level?: string;
+                        rfc?: string;
+                        text?: string;
+                        error?: string;
+                    }>("ivy.showRfcDetails", [tag]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    const detail = [
+                        resp.rfc ? `RFC: ${resp.rfc}` : null,
+                        resp.level ? `Level: ${resp.level}` : null,
+                        resp.text || null,
+                    ]
+                        .filter(Boolean)
+                        .join(" — ");
+                    if (detail) {
+                        vscode.window.showInformationMessage(
+                            `Ivy: [${resp.id}] ${detail}`,
+                        );
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.showRfcDetails failed:", err);
+                }
+            },
+        ),
         vscode.commands.registerCommand("ivy.openModelVisualization", () => {
             if (modelDataProvider) {
                 ModelVisualizationPanel.show(context, modelDataProvider);
@@ -396,7 +494,7 @@ export async function activate(
         }),
     );
 
-    // When the active editor changes, apply or clear decorations.
+    // When the active editor changes, apply or clear decorations and refresh CodeLens.
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (!editor || !modelDataProvider) {
@@ -404,6 +502,17 @@ export async function activate(
             }
             if (editor.document.languageId === "ivy") {
                 applyRequirementDecorations(editor, modelDataProvider);
+                // Force CodeLens refresh for the newly focused editor
+                if (client) {
+                    void vscode.commands.executeCommand(
+                        "vscode.executeCodeLensProvider",
+                        editor.document.uri
+                    );
+                }
+                // If model data is not yet available, trigger an immediate fetch
+                if (!modelDataProvider.actionRequirements?.modelReady) {
+                    modelDataProvider.triggerImmediateFetch();
+                }
             } else {
                 clearRequirementDecorations(editor);
             }

@@ -249,3 +249,29 @@ export async function showModelCommand(
         }
     }
 }
+
+export async function recompileAllCommand(
+    client: LanguageClient
+): Promise<void> {
+    try {
+        const result = await client.sendRequest<{
+            success: boolean;
+            message?: string;
+            error?: string;
+            testFileCount?: number;
+        }>("ivy/recompileAll");
+
+        if (result.success) {
+            vscode.window.showInformationMessage(
+                `Ivy: ${result.message ?? "Recompilation started"}`
+            );
+        } else {
+            vscode.window.showWarningMessage(
+                `Ivy: Recompile failed \u2014 ${result.error ?? "Unknown error"}`
+            );
+        }
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Ivy: Recompile error \u2014 ${msg}`);
+    }
+}

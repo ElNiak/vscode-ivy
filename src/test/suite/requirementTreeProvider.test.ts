@@ -1,5 +1,10 @@
 import * as assert from "assert";
-import { RequirementTreeProvider } from "../../requirements/requirementTreeProvider";
+import {
+    RequirementTreeProvider,
+    directionIcon,
+    monitorGroupIcon,
+    requirementKindIcon,
+} from "../../requirements/requirementTreeProvider";
 import { ModelDataProvider } from "../../modelDataProvider";
 import { ActionBoundary, RequirementDetail } from "../../requirements/requirementTypes";
 
@@ -331,5 +336,310 @@ suite("RequirementTreeProvider", () => {
         assert.ok(desc.includes("rfc9000:4.1"), `Expected RFC tag in description, got: ${desc}`);
         assert.ok(desc.includes("GUARANTEE"), `Expected classification in description, got: ${desc}`);
         assert.ok(desc.includes("conn_state"), `Expected state var in description, got: ${desc}`);
+    });
+
+    // -----------------------------------------------------------------------
+    // D1: Helper icon function tests
+    // -----------------------------------------------------------------------
+
+    test("directionIcon returns correct icons for each direction", () => {
+        assert.strictEqual(directionIcon("GENERATED"), "arrow-up");
+        assert.strictEqual(directionIcon("RECEIVED"), "arrow-down");
+        assert.strictEqual(directionIcon("INTERNAL"), "symbol-event");
+        assert.strictEqual(directionIcon(null), "symbol-event");
+    });
+
+    test("monitorGroupIcon returns correct icons for each group", () => {
+        assert.strictEqual(monitorGroupIcon("Before"), "arrow-up");
+        assert.strictEqual(monitorGroupIcon("Around"), "arrow-swap");
+        assert.strictEqual(monitorGroupIcon("After"), "arrow-down");
+        assert.strictEqual(monitorGroupIcon("Implement"), "symbol-method");
+        assert.strictEqual(monitorGroupIcon("Direct"), "arrow-right");
+    });
+
+    test("requirementKindIcon returns correct icons for each kind", () => {
+        assert.strictEqual(requirementKindIcon("require"), "shield");
+        assert.strictEqual(requirementKindIcon("ensure"), "check");
+        assert.strictEqual(requirementKindIcon("assume"), "eye");
+        assert.strictEqual(requirementKindIcon("assert"), "warning");
+    });
+
+    // -----------------------------------------------------------------------
+    // D2: "Direct" monitor group
+    // -----------------------------------------------------------------------
+
+    test("expanding action with only direct monitors shows Direct group", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [],
+                        around: [],
+                        after: [],
+                        implement: [],
+                        direct: [makeRequirement({ mixin_kind: "direct", kind: "require" })],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        assert.strictEqual(groups.length, 1);
+        assert.ok(groups[0].label?.toString().includes("Direct"));
+    });
+
+    // -----------------------------------------------------------------------
+    // D3: "assert" requirement kind
+    // -----------------------------------------------------------------------
+
+    test("requirement with kind 'assert' renders correctly", () => {
+        const req = makeRequirement({ kind: "assert", formulaText: "invariant holds" });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 0, ensure: 0, assume: 0, assert: 1, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        const items = tree.getChildren(groups[0]);
+        assert.strictEqual(items.length, 1);
+        assert.ok(
+            items[0].label?.toString().includes("assert: invariant holds"),
+            `Expected 'assert: invariant holds', got '${items[0].label}'`
+        );
+    });
+
+    // -----------------------------------------------------------------------
+    // D4: Command objects on tree items
+    // -----------------------------------------------------------------------
+
+    test("ActionItem sets vscode.open command when file and line are valid", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    file: "/path/test.ivy",
+                    line: 10,
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+        assert.ok(actionItem.command, "ActionItem should have a command");
+        assert.strictEqual(actionItem.command!.command, "vscode.open");
+        assert.strictEqual(actionItem.command!.title, "Go to Action");
+        assert.ok(
+            Array.isArray(actionItem.command!.arguments),
+            "Command should have arguments"
+        );
+    });
+
+    test("RequirementItem sets vscode.open command for navigation", () => {
+        const req = makeRequirement({ file: "/path/test.ivy", line: 5 });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        const items = tree.getChildren(groups[0]);
+        assert.strictEqual(items.length, 1);
+        assert.ok(items[0].command, "RequirementItem should have a command");
+        assert.strictEqual(items[0].command!.command, "vscode.open");
+        assert.strictEqual(items[0].command!.title, "Go to Requirement");
+    });
+
+    // -----------------------------------------------------------------------
+    // D5: Tooltip content
+    // -----------------------------------------------------------------------
+
+    test("ActionItem tooltip shows qualifiedName", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({ qualifiedName: "quic.send_pkt" })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+        assert.strictEqual(
+            actionItem.tooltip,
+            "quic.send_pkt",
+            `Expected tooltip 'quic.send_pkt', got '${actionItem.tooltip}'`
+        );
+    });
+
+    test("RequirementItem tooltip shows kind, location, and formula", () => {
+        const req = makeRequirement({
+            kind: "require",
+            file: "/path/test.ivy",
+            line: 5,
+            formulaText: "pkt.seq > 0",
+        });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        const items = tree.getChildren(groups[0]);
+        assert.strictEqual(items.length, 1);
+        const tooltip = items[0].tooltip as string;
+        assert.ok(
+            tooltip.includes("require at /path/test.ivy:5"),
+            `Expected location in tooltip, got: ${tooltip}`
+        );
+        assert.ok(
+            tooltip.includes("pkt.seq > 0"),
+            `Expected formula in tooltip, got: ${tooltip}`
+        );
+    });
+
+    // -----------------------------------------------------------------------
+    // D7: onDidChangeTreeData event propagation
+    // -----------------------------------------------------------------------
+
+    test("onDidChangeTreeData fires when model data changes", () => {
+        const mdp = makeProvider({
+            actionRequirements: { modelReady: true, actions: [] },
+        });
+        const tree = new RequirementTreeProvider(mdp);
+        let fired = false;
+        tree.onDidChangeTreeData(() => { fired = true; });
+
+        // Simulate the model data provider firing a change event.
+        (mdp as any)._onDidChange.fire();
+        assert.ok(fired, "onDidChangeTreeData should have fired");
+        tree.dispose();
+    });
+
+    // -----------------------------------------------------------------------
+    // A1: Defensive null checks — bracketTags/stateVarsRead as null/undefined
+    // -----------------------------------------------------------------------
+
+    test("handles null bracketTags and stateVarsRead without throwing", () => {
+        const req = makeRequirement({
+            bracketTags: null as any,
+            stateVarsRead: undefined as any,
+            nctClassification: "ASSUMPTION",
+        });
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({
+                    monitors: {
+                        before: [req],
+                        around: [], after: [], implement: [], direct: [],
+                    },
+                    counts: { require: 1, ensure: 0, assume: 0, assert: 0, total: 1 },
+                })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        const actionItem = roots.find((r: any) => r.action !== undefined);
+        assert.ok(actionItem);
+
+        const groups = tree.getChildren(actionItem);
+        // Should not throw when expanding to requirement items.
+        const items = tree.getChildren(groups[0]);
+        assert.strictEqual(items.length, 1);
+        const desc = (items[0] as any).description as string;
+        assert.ok(
+            desc.includes("ASSUMPTION"),
+            `Expected classification in description, got: ${desc}`
+        );
+    });
+
+    // -----------------------------------------------------------------------
+    // D10: Scope indicator with null testFile
+    // -----------------------------------------------------------------------
+
+    test("scope indicator shows 'Scoped: active test' when testFile is null", () => {
+        const tree = new RequirementTreeProvider(makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction()],
+                scopeInfo: { testFile: null, scoped: true },
+            },
+        }));
+        const roots = tree.getChildren(undefined);
+        assert.ok(roots.length >= 2, `Expected >= 2 items, got ${roots.length}`);
+        assert.ok(
+            roots[0].label?.toString().includes("Scoped: active test"),
+            `Expected 'Scoped: active test', got '${roots[0].label}'`
+        );
+    });
+
+    // -----------------------------------------------------------------------
+    // D11: Error state with cached data shows cached data, not error
+    // -----------------------------------------------------------------------
+
+    test("shows cached data when endpoint has error but cached data exists", () => {
+        const mdp = makeProvider({
+            actionRequirements: {
+                modelReady: true,
+                actions: [makeAction({ actionName: "cached_action" })],
+                scopeInfo: { testFile: null, scoped: false },
+            },
+        });
+        // Simulate an error from a subsequent refresh attempt while cached data exists.
+        (mdp as any)._endpointErrors.set("actionRequirements", "Connection refused");
+        const tree = new RequirementTreeProvider(mdp);
+        const roots = tree.getChildren(undefined);
+        // Should show the cached action, NOT an error message.
+        assert.ok(
+            roots.some((r: any) => r.label?.toString().includes("cached_action")),
+            `Expected cached_action in tree, got: ${roots.map((r) => r.label)}`
+        );
+        assert.ok(
+            !roots.some((r: any) => r.label?.toString().includes("Error")),
+            "Should NOT show error when cached data exists"
+        );
     });
 });

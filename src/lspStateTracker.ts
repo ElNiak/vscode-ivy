@@ -54,7 +54,7 @@ export class LspStateTracker implements vscode.Disposable {
     private _prevDeepIndexRunning = false;
     private _prevTier3FileCount = 0;
 
-    /** Per-endpoint exponential backoff to isolate failures. */
+    /** Per-endpoint linear backoff (max 5 skipped cycles) to isolate failures. */
     private _backoffs: Record<string, { backoff: number; skipCount: number }> = {};
 
     /** Fires when any cached state changes. */

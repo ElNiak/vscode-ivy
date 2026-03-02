@@ -71,6 +71,9 @@ export class DashboardPanel {
                 case "refresh":
                     await this.tracker.refreshNow();
                     break;
+                default:
+                    console.warn("[ivy-dashboard] Unknown action:", msg.action);
+                    break;
             }
         } catch (err) {
             const detail = err instanceof Error ? err.message : String(err);
