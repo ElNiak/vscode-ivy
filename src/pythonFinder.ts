@@ -12,9 +12,10 @@ let cachedPythonPath: string | undefined;
  * Search order:
  *   1. `ivy.pythonPath` setting (if non-empty)
  *   2. Workspace `.venv/bin/python` (or `.venv/Scripts/python.exe` on Windows)
- *   3. Managed venv `~/.ivy-lsp/venv/bin/python`
- *   4. `python3` on PATH
- *   5. `python` on PATH
+ *   3. Parent directories `.venv` (up to 5 levels — handles submodule/monorepo layouts)
+ *   4. Managed venv `~/.ivy-lsp/venv/bin/python`
+ *   5. `python3` on PATH
+ *   6. `python` on PATH
  *
  * The result is cached for the session — call `clearCache()` to reset.
  */
@@ -45,6 +46,25 @@ export async function findPython(): Promise<string | undefined> {
             if (venvPython && (await isPythonValid(venvPython))) {
                 cachedPythonPath = venvPython;
                 return cachedPythonPath;
+            }
+        }
+    }
+
+    // Check parent directories for .venv (handles submodule / monorepo layouts)
+    if (workspaceFolders) {
+        for (const folder of workspaceFolders) {
+            let dir = folder.uri.fsPath;
+            for (let i = 0; i < 5; i++) {
+                const parent = path.dirname(dir);
+                if (parent === dir) {
+                    break;
+                }
+                dir = parent;
+                const venvPython = getVenvPython(dir);
+                if (venvPython && (await isPythonValid(venvPython))) {
+                    cachedPythonPath = venvPython;
+                    return cachedPythonPath;
+                }
             }
         }
     }
