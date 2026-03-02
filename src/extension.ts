@@ -966,8 +966,11 @@ async function startWithPython(
 
     // Register ivy/serverReady notification BEFORE client.start() so it's
     // in place by the time the server finishes initialization.
-    client.onNotification("ivy/serverReady", () => {
+    client.onNotification("ivy/serverReady", (params: { mode?: string; indexingDuration?: number }) => {
         stateTracker?.onServerReady();
+        if (params?.indexingDuration !== undefined) {
+            console.log(`[ivy] Server ready (${params.mode ?? "unknown"} mode) in ${params.indexingDuration.toFixed(1)}s`);
+        }
     });
 
     // Push-based T3 compilation progress — supplements the 3 s polling cycle
