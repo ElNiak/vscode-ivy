@@ -14,6 +14,7 @@
 export interface RequirementDetail {
     id: string;
     kind: "require" | "ensure" | "assume" | "assert";
+    mixin_kind: "before" | "after" | "around" | "implement" | "direct";
     formulaText: string;
     line: number;
     file: string;
@@ -51,6 +52,8 @@ export interface ActionBoundary {
     monitors: {
         before: RequirementDetail[];
         after: RequirementDetail[];
+        around: RequirementDetail[];
+        implement: RequirementDetail[];
         direct: RequirementDetail[];
     } | null;
     stateVarsRead: StateVarDetail[];
@@ -81,6 +84,8 @@ export interface ActionRequirementsResponse {
     pagination?: PaginationInfo;
     error?: string;
     _debug?: string;
+    truncated?: boolean;
+    totalCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +128,8 @@ export interface ModelSummaryResponse {
     scopeInfo: ScopeInfo;
     error?: string;
     _debug?: string;
+    truncated?: boolean;
+    totalCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +186,8 @@ export interface CoverageGapsResponse {
     scopeInfo: ScopeInfo;
     error?: string;
     _debug?: string;
+    truncated?: boolean;
+    totalCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +217,7 @@ export interface ActionDependencyGraphResponse {
     nodes: GraphNode[];
     edges: GraphEdge[];
     truncated?: boolean;
+    totalCount?: number;
     scopeInfo: ScopeInfo;
     error?: string;
     _debug?: string;
@@ -239,6 +249,7 @@ export interface StateMachineViewResponse {
     nodes: StateMachineNode[];
     transitions: StateMachineTransition[];
     truncated?: boolean;
+    totalCount?: number;
     scopeInfo: ScopeInfo;
     error?: string;
     _debug?: string;
@@ -263,6 +274,8 @@ export interface LayeredOverviewResponse {
     scopeInfo: ScopeInfo;
     error?: string;
     _debug?: string;
+    truncated?: boolean;
+    totalCount?: number;
 }
 
 // ---------------------------------------------------------------------------
