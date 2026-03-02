@@ -2,7 +2,7 @@
 
 import * as vscode from "vscode";
 import { LspStateTracker } from "./lspStateTracker";
-import { formatDuration } from "./utils";
+import { escapeHtml, formatDuration, getNonce } from "./utils";
 
 export class DashboardPanel {
     private static _panel: vscode.WebviewPanel | undefined;
@@ -73,9 +73,10 @@ export class DashboardPanel {
                     break;
             }
         } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err);
             console.error("[ivy-dashboard] Action failed:", msg.action, err);
             vscode.window.showErrorMessage(
-                `Ivy Dashboard: ${msg.action ?? "action"} failed`
+                `Ivy Dashboard: ${msg.action ?? "action"} failed — ${detail}`
             );
         }
     }
@@ -326,21 +327,4 @@ export class DashboardPanel {
         const toDispose = this._disposables.splice(0);
         toDispose.forEach((d) => d.dispose());
     }
-}
-
-function escapeHtml(text: string): string {
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-}
-
-function getNonce(): string {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let nonce = "";
-    for (let i = 0; i < 32; i++) {
-        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return nonce;
 }

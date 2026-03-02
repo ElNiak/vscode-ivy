@@ -1,7 +1,7 @@
 /**
  * Editor decorations for requirement density / coverage indicators.
  *
- * Shows gutter-area symbols on lines where Ivy actions are defined,
+ * Shows inline symbols on lines where Ivy actions are defined,
  * colored by requirement density.  Driven by ModelDataProvider data.
  *
  * - High coverage (>=2 total requirements): green filled circle

@@ -36,8 +36,11 @@ document.querySelectorAll(".tab-bar button").forEach((btn) => {
             .querySelectorAll(".tab-content")
             .forEach((c) => c.classList.remove("active"));
         btn.classList.add("active");
-        const tabId = (btn as HTMLElement).dataset.tab!;
-        document.getElementById(tabId)!.classList.add("active");
+        const tabId = (btn as HTMLElement).dataset.tab;
+        if (!tabId) return;
+        const tabContent = document.getElementById(tabId);
+        if (!tabContent) return;
+        tabContent.classList.add("active");
 
         // Cytoscape needs a resize after the container becomes visible,
         // otherwise the canvas dimensions are zero.
@@ -72,8 +75,9 @@ function renderSummaryTable(data: {
     if (!table) return;
     if (!Array.isArray(data?.rows)) return;
 
-    const thead = table.querySelector("thead tr")!;
-    const tbody = table.querySelector("tbody")!;
+    const thead = table.querySelector("thead tr");
+    const tbody = table.querySelector("tbody");
+    if (!thead || !tbody) return;
 
     thead.innerHTML = `
         <th>Action</th>

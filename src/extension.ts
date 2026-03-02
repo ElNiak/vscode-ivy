@@ -203,8 +203,12 @@ export async function activate(
             stateTracker?.refreshNow()
         ),
         vscode.commands.registerCommand("ivy.reindexWorkspace", async () => {
+            if (!stateTracker) {
+                vscode.window.showWarningMessage("Ivy: Cannot re-index \u2014 LSP server is not running.");
+                return;
+            }
             try {
-                const result = await stateTracker?.sendReindex();
+                const result = await stateTracker.sendReindex();
                 if (result) {
                     vscode.window.showInformationMessage(result.message);
                 }
@@ -214,8 +218,12 @@ export async function activate(
             }
         }),
         vscode.commands.registerCommand("ivy.clearCache", async () => {
+            if (!stateTracker) {
+                vscode.window.showWarningMessage("Ivy: Cannot clear cache \u2014 LSP server is not running.");
+                return;
+            }
             try {
-                const result = await stateTracker?.sendClearCache();
+                const result = await stateTracker.sendClearCache();
                 if (result) {
                     vscode.window.showInformationMessage(result.message);
                 }
@@ -251,10 +259,18 @@ export async function activate(
         vscode.commands.registerCommand("ivy.openDashboard", () => {
             if (stateTracker) {
                 DashboardPanel.show(context, stateTracker);
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Dashboard is not available. The LSP server may not be running."
+                );
             }
         }),
         vscode.commands.registerCommand("ivy.showOutput", () => {
-            client?.outputChannel?.show(true);
+            if (client?.outputChannel) {
+                client.outputChannel.show(true);
+            } else {
+                vscode.window.showWarningMessage("Ivy: No output channel available \u2014 LSP server is not running.");
+            }
         }),
         vscode.commands.registerCommand("ivy.toggleDebugLog", async () => {
             const config = vscode.workspace.getConfiguration("ivy");
@@ -296,10 +312,20 @@ export async function activate(
         vscode.commands.registerCommand("ivy.openModelVisualization", () => {
             if (modelDataProvider) {
                 ModelVisualizationPanel.show(context, modelDataProvider);
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Model visualization is not available. The LSP server may not be running."
+                );
             }
         }),
         vscode.commands.registerCommand("ivy.showActivityLog", () => {
-            activityChannel?.show();
+            if (activityChannel) {
+                activityChannel.show();
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Activity log is not available."
+                );
+            }
         }),
     );
 

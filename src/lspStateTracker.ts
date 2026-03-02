@@ -131,11 +131,16 @@ export class LspStateTracker implements vscode.Disposable {
             return;
         }
         const doRefresh = async (): Promise<void> => {
+            // Capture client reference so it cannot become null mid-refresh
+            // if setClient(null) is called while awaiting a response.
+            const c = this.client;
+            if (!c || c.state !== 2) { return; }
+
             const delay = (ms: number) =>
                 new Promise<void>((r) => setTimeout(r, ms));
 
             try {
-                const status = await this.client!.sendRequest<ServerStatus>(
+                const status = await c.sendRequest<ServerStatus>(
                     "ivy/serverStatus",
                     null
                 );
@@ -147,7 +152,7 @@ export class LspStateTracker implements vscode.Disposable {
             await delay(250);
 
             try {
-                const stats = await this.client!.sendRequest<IndexerStats>(
+                const stats = await c.sendRequest<IndexerStats>(
                     "ivy/indexerStats",
                     null
                 );
@@ -159,7 +164,7 @@ export class LspStateTracker implements vscode.Disposable {
             await delay(250);
 
             try {
-                const history = await this.client!.sendRequest<OperationHistory>(
+                const history = await c.sendRequest<OperationHistory>(
                     "ivy/operationHistory",
                     null
                 );
@@ -171,7 +176,7 @@ export class LspStateTracker implements vscode.Disposable {
             await delay(250);
 
             try {
-                const features = await this.client!.sendRequest<FeatureStatus>(
+                const features = await c.sendRequest<FeatureStatus>(
                     "ivy/featureStatus",
                     null
                 );
@@ -184,7 +189,7 @@ export class LspStateTracker implements vscode.Disposable {
 
             try {
                 const deepIndex =
-                    await this.client!.sendRequest<DeepIndexProgress>(
+                    await c.sendRequest<DeepIndexProgress>(
                         "ivy/deepIndexProgress",
                         null
                     );
@@ -197,7 +202,7 @@ export class LspStateTracker implements vscode.Disposable {
 
             try {
                 const testMatrix =
-                    await this.client!.sendRequest<TestFeatureMatrix>(
+                    await c.sendRequest<TestFeatureMatrix>(
                         "ivy/testFeatureMatrix",
                         null
                     );
@@ -210,7 +215,7 @@ export class LspStateTracker implements vscode.Disposable {
 
             try {
                 const pipelineDetail =
-                    await this.client!.sendRequest<AnalysisPipelineDetail>(
+                    await c.sendRequest<AnalysisPipelineDetail>(
                         "ivy/analysisPipelineDetail",
                         null
                     );
@@ -534,7 +539,7 @@ export class LspStateTracker implements vscode.Disposable {
 
         // Stale file detection
         const staleCount = this.indexerStats?.staleFiles?.length ?? 0;
-        if (staleCount > 0 && staleCount !== this._prevStaleCount) {
+        if (staleCount > this._prevStaleCount) {
             vscode.window
                 .showWarningMessage(
                     `Ivy: ${staleCount} stale file(s) detected`,
@@ -542,7 +547,9 @@ export class LspStateTracker implements vscode.Disposable {
                 )
                 .then((action) => {
                     if (action === "Re-index") {
-                        this.sendReindex();
+                        this.sendReindex().catch((e) =>
+                            console.warn("[ivy-tracker] reindex failed:", e),
+                        );
                     }
                 });
         }

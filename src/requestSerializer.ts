@@ -27,10 +27,8 @@ export class RequestSerializer {
         this._queue = gate;
 
         // Race the previous lock against a timeout to prevent permanent deadlock.
-        let timedOut = false;
         const timeout = new Promise<void>((r) => {
             const timer = setTimeout(() => {
-                timedOut = true;
                 console.warn(
                     `[RequestSerializer] Lock acquisition timed out after ${this._lockTimeoutMs}ms, draining queue`,
                 );

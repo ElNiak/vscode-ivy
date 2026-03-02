@@ -196,6 +196,7 @@ export class ModelDataProvider implements vscode.Disposable {
      * is still indexing.
      */
     async refreshNow(force = false): Promise<void> {
+        this._clearFastRetryTimer();  // Always clear pending retry before new refresh
         if (this._disposed) { return; }
         console.debug("[ivy-model] refreshNow called: force =", force,
             ", client =", this._client ? "present" : "null",
@@ -221,6 +222,13 @@ export class ModelDataProvider implements vscode.Disposable {
         this._refreshing = true;
 
         const doRefresh = async (): Promise<void> => {
+            // Re-check client after serializer deferral — it may have been
+            // nulled by setClient(null) while waiting for the lock.
+            if (!this._client || this._client.state !== 2) {
+                this._refreshing = false;
+                return;
+            }
+
             const delay = (ms: number) =>
                 new Promise<void>((r) => setTimeout(r, ms));
 
@@ -370,8 +378,11 @@ export class ModelDataProvider implements vscode.Disposable {
                         "ivy/actionDependencyGraph",
                         scopeParams,
                     );
+                this.endpointErrors.delete("dependencyGraph");
             } catch (err) {
                 console.warn("[ivy-model] ivy/actionDependencyGraph failed:", err);
+                this.endpointErrors.set("dependencyGraph", String(err));
+                this.dependencyGraph = null;
             }
             try {
                 this.stateMachine =
@@ -379,8 +390,11 @@ export class ModelDataProvider implements vscode.Disposable {
                         "ivy/stateMachineView",
                         scopeParams,
                     );
+                this.endpointErrors.delete("stateMachine");
             } catch (err) {
                 console.warn("[ivy-model] ivy/stateMachineView failed:", err);
+                this.endpointErrors.set("stateMachine", String(err));
+                this.stateMachine = null;
             }
             this._onDidChange.fire();
         };

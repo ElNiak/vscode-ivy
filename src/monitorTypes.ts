@@ -166,6 +166,6 @@ export interface ModelReadyNotification {
 
 /** Payload of the `ivy/serverReady` server notification. */
 export interface ServerReadyNotification {
-    mode: string;
+    mode: "full" | "light";
     indexingDuration: number;
 }

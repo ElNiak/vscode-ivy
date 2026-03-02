@@ -7,6 +7,7 @@
 
 import * as vscode from "vscode";
 import { ModelDataProvider } from "../modelDataProvider";
+import { getNonce } from "../utils";
 
 /** Callback to manage reference-counted visibility (set by extension.ts). */
 let _setModelVisible: (consumerId: string, visible: boolean) => void = (_, v) => {};
@@ -172,7 +173,7 @@ export class ModelVisualizationPanel {
             vscode.Uri.joinPath(extensionUri, "out", "webview", "model.js"),
         );
 
-        const nonce = _getNonce();
+        const nonce = getNonce();
 
         return `<!DOCTYPE html>
 <html lang="en">
@@ -259,13 +260,4 @@ export class ModelVisualizationPanel {
 </body>
 </html>`;
     }
-}
-
-function _getNonce(): string {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let nonce = "";
-    for (let i = 0; i < 32; i++) {
-        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return nonce;
 }
