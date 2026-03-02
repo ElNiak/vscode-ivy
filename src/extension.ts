@@ -427,6 +427,20 @@ export async function activate(
                 }
             }
 
+            // Trace level: update live without restarting the server.
+            if (e.affectsConfiguration("ivy.lsp.trace.server") && client) {
+                const level = vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<string>("lsp.trace.server", "off");
+                const trace =
+                    level === "verbose"
+                        ? Trace.Verbose
+                        : level === "messages"
+                          ? Trace.Messages
+                          : Trace.Off;
+                client.setTrace(trace);
+            }
+
             // LSP-related settings: restart the server (debounced to prevent rapid restarts).
             if (
                 e.affectsConfiguration("ivy.pythonPath") ||
