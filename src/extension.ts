@@ -428,6 +428,9 @@ export async function activate(
             }
 
             // Trace level: update live without restarting the server.
+            // Deferred with setTimeout so it runs AFTER the library's
+            // built-in refreshTrace(), which reads from a different config
+            // key (ivy-language-server.trace.server) and would override us.
             if (e.affectsConfiguration("ivy.lsp.trace.server") && client) {
                 const level = vscode.workspace
                     .getConfiguration("ivy")
@@ -438,7 +441,7 @@ export async function activate(
                         : level === "messages"
                           ? Trace.Messages
                           : Trace.Off;
-                client.setTrace(trace);
+                setTimeout(() => client?.setTrace(trace), 0);
             }
 
             // LSP-related settings: restart the server (debounced to prevent rapid restarts).
@@ -808,13 +811,6 @@ async function startWithPython(
         clientOptions
     );
 
-    // Set trace level if not "off".
-    if (traceLevel !== "off") {
-        const trace =
-            traceLevel === "verbose" ? Trace.Verbose : Trace.Messages;
-        await client.setTrace(trace);
-    }
-
     // Listen for the server mode notification to set status accurately.
     let modeDetected = false;
     logNotificationDisposable?.dispose();
@@ -864,6 +860,15 @@ async function startWithPython(
         console.debug("[ivy-ext] calling client.start()...");
         await client.start();
         console.debug("[ivy-ext] client.start() resolved, state =", client.state);
+
+        // Set trace level AFTER start() so it overrides the library's
+        // refreshTrace() which reads from the wrong config key.
+        if (traceLevel !== "off") {
+            const trace =
+                traceLevel === "verbose" ? Trace.Verbose : Trace.Messages;
+            await client.setTrace(trace);
+        }
+
         // Default to running-full until we hear from the server.
         if (!modeDetected) {
             setStatus("running-full", version);
