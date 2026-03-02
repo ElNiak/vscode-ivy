@@ -1,7 +1,7 @@
 /** Polling orchestrator for ivy-lsp monitoring endpoints. */
 
 import * as vscode from "vscode";
-import { LanguageClient } from "vscode-languageclient/node";
+import { LanguageClient, State } from "vscode-languageclient/node";
 import {
     ServerStatus,
     IndexerStats,
@@ -23,6 +23,8 @@ const POLL_TIMEOUT_INIT_MS = 30000;
 
 /** Client-side state tracker that polls the LSP server for monitoring data. */
 export class LspStateTracker implements vscode.Disposable {
+    private _disposed = false;
+    private _timerGeneration = 0;
     private _statusTimer: ReturnType<typeof setInterval> | null = null;
     private _statsTimer: ReturnType<typeof setInterval> | null = null;
     private _historyTimer: ReturnType<typeof setInterval> | null = null;
@@ -147,7 +149,8 @@ export class LspStateTracker implements vscode.Disposable {
      * server doesn't support the batch endpoint yet.
      */
     async refreshNow(): Promise<void> {
-        if (!this.client || this.client.state !== 2 /* Running */) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         // During initialization, only poll server status (lightweight, in-memory)
@@ -157,7 +160,7 @@ export class LspStateTracker implements vscode.Disposable {
         }
         const doRefresh = async (): Promise<void> => {
             const c = this.client;
-            if (!c || c.state !== 2) { return; }
+            if (!c || c.state !== State.Running) { return; }
 
             // Try batch endpoint first (single round-trip)
             try {
@@ -292,28 +295,34 @@ export class LspStateTracker implements vscode.Disposable {
     private _startDeferredTimers(): void {
         if (this._deferredTimersStarted) { return; }
         this._deferredTimersStarted = true;
+        const gen = this._timerGeneration;
         this._staggerTimers.push(setTimeout(() => {
+            if (this._timerGeneration !== gen) { return; }
             this._statsTimer = setInterval(() => this._pollStats(), 10000);
         }, 500));
         this._staggerTimers.push(setTimeout(() => {
+            if (this._timerGeneration !== gen) { return; }
             this._historyTimer = setInterval(
                 () => this._pollHistory(),
                 5000
             );
         }, 1000));
         this._staggerTimers.push(setTimeout(() => {
+            if (this._timerGeneration !== gen) { return; }
             this._featureTimer = setInterval(
                 () => this._pollFeatures(),
                 5000
             );
         }, 1500));
         this._staggerTimers.push(setTimeout(() => {
+            if (this._timerGeneration !== gen) { return; }
             this._progressTimer = setInterval(
                 () => this._pollProgress(),
                 2000
             );
         }, 2000));
         this._staggerTimers.push(setTimeout(() => {
+            if (this._timerGeneration !== gen) { return; }
             this._pipelineTimer = setInterval(
                 () => this._pollPipelineDetail(),
                 3000
@@ -322,6 +331,7 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private _stopPolling(): void {
+        this._timerGeneration++;
         // Cancel pending stagger timeouts before they create new intervals.
         for (const t of this._staggerTimers) {
             clearTimeout(t);
@@ -411,7 +421,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollStatus(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         if (this._shouldSkip("status")) {
@@ -447,7 +458,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollStats(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         if (this._shouldSkip("stats")) {
@@ -473,7 +485,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollHistory(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         if (this._shouldSkip("history")) {
@@ -500,7 +513,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollFeatures(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         if (this._shouldSkip("features")) {
@@ -581,7 +595,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollProgress(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         const doPoll = async (): Promise<void> => {
@@ -641,7 +656,8 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     private async _pollPipelineDetail(): Promise<void> {
-        if (!this.client || this.client.state !== 2) {
+        if (this._disposed) { return; }
+        if (!this.client || this.client.state !== State.Running) {
             return;
         }
         if (this._shouldSkip("pipeline")) {
@@ -684,6 +700,7 @@ export class LspStateTracker implements vscode.Disposable {
     }
 
     dispose(): void {
+        this._disposed = true;
         this._stopPolling();
         this._onDidChange.dispose();
     }
