@@ -428,6 +428,7 @@ export async function activate(
                 }
             },
         ),
+        vscode.commands.registerCommand("ivy.noop", () => {}),
         vscode.commands.registerCommand("ivy.openModelVisualization", () => {
             if (modelDataProvider) {
                 ModelVisualizationPanel.show(context, modelDataProvider);
@@ -582,7 +583,10 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.compileWorkers") ||
                 e.affectsConfiguration("ivy.lsp.compileTimeout") ||
                 e.affectsConfiguration("ivy.lsp.compileCacheTTL") ||
-                e.affectsConfiguration("ivy.activity.granularity")
+                e.affectsConfiguration("ivy.activity.granularity") ||
+                e.affectsConfiguration("ivy.tools.verifyTimeout") ||
+                e.affectsConfiguration("ivy.tools.compileTimeout") ||
+                e.affectsConfiguration("ivy.tools.showModelTimeout")
             ) {
                 if (configChangeTimer) {
                     clearTimeout(configChangeTimer);
@@ -607,7 +611,7 @@ export async function activate(
     );
 
     // Auto-detect test scope on editor focus change (debounced to avoid
-    // flooding the server with ivy/listTests requests when switching tabs).
+    // flooding the server with notifications and requests when switching tabs).
     context.subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editorChangeTimer) {
@@ -734,11 +738,30 @@ async function startClient(
     }
 
     let ivyLspVersion = await checkIvyLsp(pythonPath);
+    let effectivePython = pythonPath;
+
+    // If the discovered Python lacks ivy-lsp, check the managed venv
+    // before triggering any install. Prevents clobbering editable dev installs
+    // when findPython() returns a workspace venv without ivy-lsp.
+    if (!ivyLspVersion) {
+        const existingManagedPy = getManagedVenvPython();
+        if (existingManagedPy) {
+            const managedVer = await checkIvyLsp(existingManagedPy);
+            if (managedVer) {
+                ivyLspVersion = managedVer;
+                effectivePython = existingManagedPy;
+            }
+        }
+    }
 
     // If the managed venv has an outdated version, upgrade automatically.
     const extensionVersion = context.extension.packageJSON.version as string;
     const managedPy = getManagedVenvPython();
-    if (ivyLspVersion && isOlderVersion(ivyLspVersion, extensionVersion) && managedPy) {
+    const managedInstallEnabled = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.managedInstall", true);
+
+    if (ivyLspVersion && isOlderVersion(ivyLspVersion, extensionVersion) && managedPy && managedInstallEnabled) {
         setStatus("installing");
         const ok = await upgradeManagedIvyLsp();
         if (ok) {
@@ -761,10 +784,6 @@ async function startClient(
 
     // If ivy-lsp is not installed, try managed auto-install.
     if (!ivyLspVersion) {
-        const managedInstallEnabled = vscode.workspace
-            .getConfiguration("ivy")
-            .get<boolean>("lsp.managedInstall", true);
-
         if (managedInstallEnabled) {
             // Find a system python to create the venv from.
             // The pythonPath we found may be a workspace venv without ivy-lsp;
@@ -814,7 +833,7 @@ async function startClient(
         return;
     }
 
-    await startWithPython(context, pythonPath, ivyLspVersion);
+    await startWithPython(context, effectivePython, ivyLspVersion);
 }
 
 async function startWithPython(
@@ -870,6 +889,18 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<string>("activity.granularity", "phase");
 
+    const verifyTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.verifyTimeout", 120);
+
+    const toolCompileTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.compileTimeout", 300);
+
+    const showModelTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.showModelTimeout", 30);
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
@@ -888,6 +919,9 @@ async function startWithPython(
                 IVY_LSP_COMPILE_TIMEOUT: String(compileTimeout),
                 IVY_LSP_COMPILE_CACHE_TTL: String(compileCacheTTL),
                 IVY_LSP_ACTIVITY_LEVEL: activityGranularity,
+                IVY_LSP_VERIFY_TIMEOUT: String(verifyTimeout),
+                IVY_LSP_TOOL_COMPILE_TIMEOUT: String(toolCompileTimeout),
+                IVY_LSP_SHOW_MODEL_TIMEOUT: String(showModelTimeout),
             },
         },
     };

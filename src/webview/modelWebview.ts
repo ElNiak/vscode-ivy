@@ -4,9 +4,8 @@
  * Runs inside a VS Code webview panel (DOM available).
  * Receives data via window.addEventListener("message", ...).
  *
- * - Task 18: Cytoscape dependency graph + state machine tabs.
- * - Task 19: summary table rendering.
- * - Task 20: module layers rendering with file grouping.
+ * Handles: dependency graph tab (Cytoscape), state machine tab (Cytoscape),
+ * summary table tab, and module layers tab with file grouping.
  */
 
 import { createDependencyGraph, createStateMachineGraph } from "./graphRenderer";
