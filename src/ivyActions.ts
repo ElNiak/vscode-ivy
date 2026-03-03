@@ -45,7 +45,9 @@ function getTimeoutForMethod(method: string): { key: string; defaultSec: number 
     if (method === "ivy/verify") {
         return { key: "tools.verifyTimeout", defaultSec: 120 };
     }
-    // ivy/compile, ivy/showModel, and any future tool actions
+    if (method === "ivy/showModel") {
+        return { key: "tools.showModelTimeout", defaultSec: 30 };
+    }
     return { key: "tools.compileTimeout", defaultSec: 300 };
 }
 

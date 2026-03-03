@@ -43,6 +43,29 @@ export function getManagedVenvPython(): string | undefined {
 }
 
 /**
+ * Detect whether ivy-lsp is installed as a PEP 660 editable install.
+ * Uses `direct_url.json` from the distribution metadata.
+ */
+export async function isEditableInstall(pythonPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        cp.execFile(
+            pythonPath,
+            [
+                "-c",
+                'import json, importlib.metadata; ' +
+                'd = importlib.metadata.distribution("ivy-lsp"); ' +
+                'u = d.read_text("direct_url.json"); ' +
+                'print(json.loads(u).get("dir_info",{}).get("editable",False) if u else False)',
+            ],
+            { timeout: 5_000 },
+            (error, stdout) => {
+                resolve(!error && stdout.trim() === "True");
+            }
+        );
+    });
+}
+
+/**
  * Ensure ivy-lsp is installed in the managed venv, creating it if needed.
  *
  * @param pythonPath A working system Python to create the venv from.
@@ -80,6 +103,12 @@ export async function ensureIvyLspInstalled(
 
             if (token.isCancellationRequested) {
                 return undefined;
+            }
+
+            // Skip managed install if an editable (dev) install already exists.
+            if (await isEditableInstall(py)) {
+                console.log("[ivy-lsp] Editable install detected — skipping managed install.");
+                return py;
             }
 
             // Step 2: Install ivy-lsp (light, no z3).
@@ -156,6 +185,11 @@ export async function upgradeManagedIvyLsp(): Promise<boolean> {
     const py = getManagedVenvPython();
     if (!py) {
         return false;
+    }
+
+    if (await isEditableInstall(py)) {
+        console.log("[ivy-lsp] Editable install detected — skipping upgrade.");
+        return true;
     }
 
     const pip = venvPip();
