@@ -11,6 +11,7 @@ interface IvyToolResult {
     diagnosticCount?: number;
     isolate?: string;
     binaryPath?: string;
+    availableIsolates?: string[];
 }
 
 // ---- Output Channel ----
@@ -39,6 +40,17 @@ export function cancelCommand(): void {
 
 // ---- Helpers ----
 
+/** Map LSP method to the corresponding timeout setting key and default value. */
+function getTimeoutForMethod(method: string): { key: string; defaultSec: number } {
+    if (method === "ivy/verify") {
+        return { key: "tools.verifyTimeout", defaultSec: 120 };
+    }
+    if (method === "ivy/showModel") {
+        return { key: "tools.showModelTimeout", defaultSec: 30 };
+    }
+    return { key: "tools.compileTimeout", defaultSec: 300 };
+}
+
 async function getTargetUri(
     resourceUri?: vscode.Uri
 ): Promise<{ uri: string; position?: vscode.Position } | undefined> {
@@ -65,7 +77,15 @@ async function autoSave(): Promise<void> {
             editor.document.isDirty &&
             editor.document.languageId === "ivy"
         ) {
-            await editor.document.save();
+            try {
+                await editor.document.save();
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn("[ivy-actions] autoSave failed:", err);
+                vscode.window.showWarningMessage(
+                    `Ivy: Could not save file before action \u2014 ${msg}`
+                );
+            }
         }
     }
 }
@@ -101,10 +121,10 @@ async function runAction(
     label: string,
     params: Record<string, unknown>,
     resourceUri?: vscode.Uri
-): Promise<void> {
+): Promise<IvyToolResult | undefined> {
     const target = await getTargetUri(resourceUri);
     if (!target) {
-        return;
+        return undefined;
     }
 
     await autoSave();
@@ -120,7 +140,14 @@ async function runAction(
     const channel = getOutputChannel();
     channel.show(true); // preserveFocus
 
-    const filePath = target.uri.replace("file://", "");
+    const filePath = vscode.Uri.parse(target.uri).fsPath;
+
+    const { key, defaultSec } = getTimeoutForMethod(method);
+    const timeoutSec = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>(key, defaultSec);
+    const timeoutMs = timeoutSec * 1000;
+    let timedOut = false;
 
     try {
         const requestParams: Record<string, unknown> = {
@@ -134,30 +161,48 @@ async function runAction(
                 character: target.position.character,
             };
         }
-
-        const result = await client.sendRequest<IvyToolResult>(
+        const request = client.sendRequest<IvyToolResult>(
             method,
             requestParams,
             activeCts.token
         );
+        const timeout = new Promise<never>((_, reject) => {
+            const timer = setTimeout(() => {
+                timedOut = true;
+                try { activeCts?.cancel(); } catch { /* already disposed */ }
+                reject(new Error(`Timed out after ${timeoutSec}s`));
+            }, timeoutMs);
+            // Clean up timer if request finishes first.
+            request.then(() => clearTimeout(timer), () => clearTimeout(timer));
+        });
+
+        const result = await Promise.race([request, timeout]);
 
         formatResult(channel, label, filePath, result);
 
         if (result.success) {
             vscode.window.showInformationMessage(`Ivy: ${label} passed`);
-        } else {
+        } else if (!result.availableIsolates?.length) {
             vscode.window.showWarningMessage(
                 `Ivy: ${label} failed - see Output`
             );
         }
+
+        return result;
     } catch (err) {
-        if (activeCts?.token.isCancellationRequested) {
+        if (timedOut) {
+            channel.appendLine(`[Timeout] Timed out after ${timeoutSec}s`);
+            vscode.window.showWarningMessage(
+                `Ivy: ${label} timed out after ${timeoutSec}s`
+            );
+        } else if (activeCts?.token.isCancellationRequested) {
             channel.appendLine("[Cancelled]");
         } else {
             const msg = err instanceof Error ? err.message : String(err);
             channel.appendLine(`[Error] ${msg}`);
             vscode.window.showErrorMessage(`Ivy: ${label} error - ${msg}`);
         }
+        return undefined;
     } finally {
         vscode.commands.executeCommand(
             "setContext",
@@ -195,5 +240,40 @@ export async function showModelCommand(
     client: LanguageClient,
     resourceUri?: vscode.Uri
 ): Promise<void> {
-    await runAction(client, "ivy/showModel", "Show Model", {}, resourceUri);
+    const result = await runAction(client, "ivy/showModel", "Show Model", {}, resourceUri);
+    if (result && !result.success && result.availableIsolates?.length) {
+        const pick = await vscode.window.showQuickPick(
+            result.availableIsolates,
+            { placeHolder: "Select isolate to show" }
+        );
+        if (pick) {
+            await runAction(client, "ivy/showModel", "Show Model", { isolate: pick }, resourceUri);
+        }
+    }
+}
+
+export async function recompileAllCommand(
+    client: LanguageClient
+): Promise<void> {
+    try {
+        const result = await client.sendRequest<{
+            success: boolean;
+            message?: string;
+            error?: string;
+            testFileCount?: number;
+        }>("ivy/recompileAll");
+
+        if (result.success) {
+            vscode.window.showInformationMessage(
+                `Ivy: ${result.message ?? "Recompilation started"}`
+            );
+        } else {
+            vscode.window.showWarningMessage(
+                `Ivy: Recompile failed \u2014 ${result.error ?? "Unknown error"}`
+            );
+        }
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`Ivy: Recompile error \u2014 ${msg}`);
+    }
 }

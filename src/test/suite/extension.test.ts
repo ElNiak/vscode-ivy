@@ -82,13 +82,6 @@ suite("Ivy Extension Activation", () => {
         );
         assert.strictEqual(autoDetect, true, "Default testScope.autoDetect should be true");
 
-        const showNct = config.get<boolean>("testScope.showNctLabels");
-        assert.strictEqual(
-            typeof showNct,
-            "boolean",
-            "ivy.testScope.showNctLabels should be a boolean"
-        );
-        assert.strictEqual(showNct, true, "Default testScope.showNctLabels should be true");
     });
 
     test("Opening .ivy content triggers ivy language mode", async () => {

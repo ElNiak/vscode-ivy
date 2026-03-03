@@ -25,6 +25,7 @@ import {
     compileCommand,
     showModelCommand,
     cancelCommand,
+    recompileAllCommand,
 } from "./ivyActions";
 import {
     createTestScopeStatusBar,
@@ -33,12 +34,74 @@ import {
     onActiveEditorChanged,
     refreshStatusBar,
     updateStatusBar,
+    disposeTestScope,
 } from "./testScope";
 import { isOlderVersion } from "./version";
+import { LspStateTracker } from "./lspStateTracker";
+import { MonitorTreeProvider } from "./monitorTreeProvider";
+import { DashboardPanel } from "./dashboardPanel";
+import { ModelDataProvider } from "./modelDataProvider";
+import { RequestSerializer } from "./requestSerializer";
+import { RequirementTreeProvider } from "./requirements/requirementTreeProvider";
+import {
+    applyRequirementDecorations,
+    clearRequirementDecorations,
+    requirementDecorationTypes,
+} from "./requirements/requirementDecorations";
+import { ModelVisualizationPanel, setModelVisibleCallback } from "./visualization/modelVisualizationPanel";
+import { ActivityChannel } from "./activityChannel";
+import { CompilationProgressNotification } from "./monitorTypes";
+
+/**
+ * Sync the active test scope from the LSP server to the model data provider
+ * so visualization requests include the correct testFile param.
+ */
+async function syncTestScope(
+    lspClient: LanguageClient,
+    provider: ModelDataProvider,
+): Promise<void> {
+    const resp = await lspClient.sendRequest<{ activeTest: string | null }>(
+        "ivy/listTests", {}
+    );
+    provider.setActiveTestFile(resp.activeTest);
+    await provider.refreshNow(true);
+}
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
 let testScopeStatusBar: vscode.StatusBarItem;
+let stateTracker: LspStateTracker | undefined;
+let treeProvider: MonitorTreeProvider | undefined;
+let modelDataProvider: ModelDataProvider | undefined;
+let reqTreeProvider: RequirementTreeProvider | undefined;
+let activityChannel: ActivityChannel | undefined;
+let editorChangeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Debounce timer for LSP configuration changes to prevent rapid restarts. */
+let configChangeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Reused across restarts to avoid leaking output channels. */
+let traceOutputChannel: vscode.OutputChannel | undefined;
+/** Category-aware serializer: at most one LSP request per category (poll vs. command) in-flight at a time. */
+const requestSerializer = new RequestSerializer();
+/** Disposable for the window/logMessage notification handler.
+ *  Wrapped in a proxy disposable so it can be tracked in context.subscriptions
+ *  even though the underlying disposable is replaced on each client restart.
+ */
+let logNotificationDisposable: vscode.Disposable | undefined;
+const logNotificationProxy: vscode.Disposable = {
+    dispose() { logNotificationDisposable?.dispose(); logNotificationDisposable = undefined; },
+};
+
+/** Tracks which consumers need ModelDataProvider to keep polling. */
+const modelVisibleConsumers = new Set<string>();
+
+function setModelVisible(consumerId: string, visible: boolean): void {
+    if (visible) {
+        modelVisibleConsumers.add(consumerId);
+    } else {
+        modelVisibleConsumers.delete(consumerId);
+    }
+    modelDataProvider?.setVisible(modelVisibleConsumers.size > 0);
+}
 
 export async function activate(
     context: vscode.ExtensionContext
@@ -126,6 +189,13 @@ export async function activate(
             }
             showModelCommand(client, uri);
         }),
+        vscode.commands.registerCommand("ivy.recompileAll", () => {
+            if (!client) {
+                vscode.window.showWarningMessage("Ivy LSP is not running.");
+                return;
+            }
+            recompileAllCommand(client);
+        }),
         vscode.commands.registerCommand("ivy.cancelOperation", cancelCommand),
         vscode.commands.registerCommand("ivy.setActiveTest", async () => {
             if (!client) {
@@ -134,6 +204,14 @@ export async function activate(
             }
             await setActiveTestCommand(client);
             await refreshStatusBar(client, testScopeStatusBar);
+            // Sync active test scope to model data provider.
+            try {
+                if (client && modelDataProvider) {
+                    await syncTestScope(client, modelDataProvider);
+                }
+            } catch (err) {
+                console.warn("[ivy-ext] Failed to sync active test after setActiveTest:", err);
+            }
         }),
         vscode.commands.registerCommand("ivy.listTests", async () => {
             if (!client) {
@@ -141,7 +219,305 @@ export async function activate(
                 return;
             }
             await listTestsCommand(client);
-        })
+        }),
+        vscode.commands.registerCommand("ivy.refreshMonitor", () =>
+            stateTracker?.refreshNow()
+        ),
+        vscode.commands.registerCommand("ivy.reindexWorkspace", async () => {
+            if (!stateTracker) {
+                vscode.window.showWarningMessage("Ivy: Cannot re-index \u2014 LSP server is not running.");
+                return;
+            }
+            try {
+                const result = await stateTracker.sendReindex();
+                if (result) {
+                    vscode.window.showInformationMessage(result.message);
+                }
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Ivy: Re-index failed \u2014 ${detail}`);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.clearCache", async () => {
+            if (!stateTracker) {
+                vscode.window.showWarningMessage("Ivy: Cannot clear cache \u2014 LSP server is not running.");
+                return;
+            }
+            try {
+                const result = await stateTracker.sendClearCache();
+                if (result) {
+                    vscode.window.showInformationMessage(result.message);
+                }
+            } catch (err) {
+                const detail = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`Ivy: Clear cache failed \u2014 ${detail}`);
+            }
+        }),
+        vscode.commands.registerCommand("ivy.editIncludePaths", () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openSettings",
+                "ivy.lsp.includePaths"
+            );
+        }),
+        vscode.commands.registerCommand("ivy.editExcludePaths", () => {
+            vscode.commands.executeCommand(
+                "workbench.action.openSettings",
+                "ivy.lsp.excludePaths"
+            );
+        }),
+        vscode.commands.registerCommand("ivy.checkForUpdates", async () => {
+            const ok = await upgradeManagedIvyLsp();
+            if (ok) {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Upgrade complete. Restart server to apply."
+                );
+            } else {
+                vscode.window.showInformationMessage(
+                    "Ivy LSP: Already up to date."
+                );
+            }
+        }),
+        vscode.commands.registerCommand("ivy.openDashboard", () => {
+            if (stateTracker) {
+                DashboardPanel.show(context, stateTracker);
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Dashboard is not available. The LSP server may not be running."
+                );
+            }
+        }),
+        vscode.commands.registerCommand("ivy.showOutput", () => {
+            if (client?.outputChannel) {
+                client.outputChannel.show(true);
+            } else {
+                vscode.window.showWarningMessage("Ivy: No output channel available \u2014 LSP server is not running.");
+            }
+        }),
+        vscode.commands.registerCommand("ivy.toggleDebugLog", async () => {
+            const config = vscode.workspace.getConfiguration("ivy");
+            const current = config.get<string>("lsp.logLevel", "INFO");
+            const next = current === "DEBUG" ? "INFO" : "DEBUG";
+            await config.update(
+                "lsp.logLevel",
+                next,
+                vscode.ConfigurationTarget.Workspace
+            );
+            // Config change handler will restart the server automatically.
+            // Show the output channel so the user sees the logs.
+            client?.outputChannel?.show(true);
+            vscode.window.showInformationMessage(
+                `Ivy LSP: Log level set to ${next}. Server restarting...`
+            );
+        }),
+        vscode.commands.registerCommand("ivy.refreshRequirements", () =>
+            modelDataProvider?.refreshNow(true),
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showActionRequirements",
+            async (actionName?: string) => {
+                // Focus the requirements tree view sidebar panel.
+                await vscode.commands.executeCommand("ivyRequirements.focus");
+                // Refresh data so decorations use the latest model state.
+                await modelDataProvider?.refreshNow();
+                // Apply gutter decorations to the active editor.
+                const editor = vscode.window.activeTextEditor;
+                if (editor && modelDataProvider) {
+                    applyRequirementDecorations(
+                        editor,
+                        modelDataProvider,
+                        actionName,
+                    );
+                }
+            },
+        ),
+        vscode.commands.registerCommand(
+            "ivy.navigateToInclude",
+            async (includeName?: string) => {
+                if (!client || !includeName) {
+                    return;
+                }
+                try {
+                    const fromUri = vscode.window.activeTextEditor?.document.uri.toString();
+                    const resp = await client.sendRequest<{
+                        resolved?: string;
+                        uri?: string;
+                        error?: string;
+                    }>("ivy.navigateToInclude", [includeName, fromUri]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    if (resp.uri) {
+                        const doc = await vscode.workspace.openTextDocument(
+                            vscode.Uri.parse(resp.uri),
+                        );
+                        await vscode.window.showTextDocument(doc);
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.navigateToInclude failed:", err);
+                    vscode.window.showWarningMessage(
+                        "Ivy: Failed to navigate to included file.",
+                    );
+                }
+            },
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showPropertyDetails",
+            async (propertyId?: string) => {
+                if (!client || !propertyId) {
+                    return;
+                }
+                try {
+                    const resp = await client.sendRequest<{
+                        id?: string;
+                        kind?: string;
+                        file?: string;
+                        line?: number;
+                        error?: string;
+                    }>("ivy.showPropertyDetails", [propertyId]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    if (resp.file) {
+                        const doc = await vscode.workspace.openTextDocument(
+                            vscode.Uri.file(resp.file),
+                        );
+                        const line = resp.line ?? 0;
+                        await vscode.window.showTextDocument(doc, {
+                            selection: new vscode.Range(line, 0, line, 0),
+                        });
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.showPropertyDetails failed:", err);
+                }
+            },
+        ),
+        vscode.commands.registerCommand(
+            "ivy.showRfcDetails",
+            async (tag?: string) => {
+                if (!client || !tag) {
+                    return;
+                }
+                try {
+                    const resp = await client.sendRequest<{
+                        id?: string;
+                        level?: string;
+                        rfc?: string;
+                        text?: string;
+                        error?: string;
+                    }>("ivy.showRfcDetails", [tag]);
+                    if (resp.error) {
+                        vscode.window.showWarningMessage(`Ivy: ${resp.error}`);
+                        return;
+                    }
+                    const detail = [
+                        resp.rfc ? `RFC: ${resp.rfc}` : null,
+                        resp.level ? `Level: ${resp.level}` : null,
+                        resp.text || null,
+                    ]
+                        .filter(Boolean)
+                        .join(" — ");
+                    if (detail) {
+                        vscode.window.showInformationMessage(
+                            `Ivy: [${resp.id}] ${detail}`,
+                        );
+                    }
+                } catch (err) {
+                    console.warn("[ivy-ext] ivy.showRfcDetails failed:", err);
+                }
+            },
+        ),
+        vscode.commands.registerCommand("ivy.noop", () => {}),
+        vscode.commands.registerCommand("ivy.openModelVisualization", () => {
+            if (modelDataProvider) {
+                ModelVisualizationPanel.show(context, modelDataProvider);
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Model visualization is not available. The LSP server may not be running."
+                );
+            }
+        }),
+        vscode.commands.registerCommand("ivy.showActivityLog", () => {
+            if (activityChannel) {
+                activityChannel.show();
+            } else {
+                vscode.window.showWarningMessage(
+                    "Ivy: Activity log is not available."
+                );
+            }
+        }),
+    );
+
+    // Set up monitoring tree view at activation time so the panel is
+    // available immediately, showing "Not connected" until the server is ready.
+    stateTracker = new LspStateTracker(null, requestSerializer);
+    treeProvider = new MonitorTreeProvider(stateTracker);
+    const treeView = vscode.window.createTreeView("ivyMonitor", {
+        treeDataProvider: treeProvider,
+        showCollapseAll: true,
+    });
+    context.subscriptions.push(
+        treeView.onDidChangeVisibility((e) =>
+            stateTracker?.setVisible(e.visible)
+        ),
+    );
+    context.subscriptions.push(treeView, treeProvider, stateTracker);
+
+    activityChannel = new ActivityChannel();
+    context.subscriptions.push(activityChannel, logNotificationProxy);
+
+    // Set up model data provider for visualization features.
+    modelDataProvider = new ModelDataProvider(null, requestSerializer);
+    context.subscriptions.push(modelDataProvider);
+    setModelVisibleCallback(setModelVisible);
+
+    // Set up requirements tree view.
+    reqTreeProvider = new RequirementTreeProvider(modelDataProvider);
+    const reqTreeView = vscode.window.createTreeView("ivyRequirements", {
+        treeDataProvider: reqTreeProvider,
+        showCollapseAll: true,
+    });
+    context.subscriptions.push(
+        reqTreeView.onDidChangeVisibility((e) =>
+            setModelVisible("reqTreeView", e.visible),
+        ),
+    );
+    context.subscriptions.push(reqTreeView, reqTreeProvider, ...requirementDecorationTypes);
+
+    // Refresh requirement decorations whenever model data changes.
+    context.subscriptions.push(
+        modelDataProvider.onDidChange(() => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document.languageId === "ivy" && modelDataProvider) {
+                applyRequirementDecorations(editor, modelDataProvider);
+            }
+        }),
+    );
+
+    // When the active editor changes, apply or clear decorations and refresh CodeLens.
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor((editor) => {
+            if (!editor || !modelDataProvider) {
+                return;
+            }
+            if (editor.document.languageId === "ivy") {
+                applyRequirementDecorations(editor, modelDataProvider);
+                // Force CodeLens refresh for the newly focused editor
+                if (client) {
+                    void vscode.commands.executeCommand(
+                        "vscode.executeCodeLensProvider",
+                        editor.document.uri
+                    );
+                }
+                // If model data is not yet available, trigger an immediate fetch
+                if (!modelDataProvider.actionRequirements?.modelReady) {
+                    modelDataProvider.triggerImmediateFetch();
+                }
+            } else {
+                clearRequirementDecorations(editor);
+            }
+        }),
     );
 
     const config = vscode.workspace.getConfiguration("ivy");
@@ -169,7 +545,24 @@ export async function activate(
                 }
             }
 
-            // LSP-related settings: restart the server.
+            // Trace level: update live without restarting the server.
+            // Deferred with setTimeout so it runs AFTER the library's
+            // built-in refreshTrace(), which reads from a different config
+            // key (ivy-language-server.trace.server) and would override us.
+            if (e.affectsConfiguration("ivy.lsp.trace.server") && client) {
+                const level = vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<string>("lsp.trace.server", "off");
+                const trace =
+                    level === "verbose"
+                        ? Trace.Verbose
+                        : level === "messages"
+                          ? Trace.Messages
+                          : Trace.Off;
+                setTimeout(() => client?.setTrace(trace), 0);
+            }
+
+            // LSP-related settings: restart the server (debounced to prevent rapid restarts).
             if (
                 e.affectsConfiguration("ivy.pythonPath") ||
                 e.affectsConfiguration("ivy.lsp.enabled") ||
@@ -181,41 +574,86 @@ export async function activate(
                 e.affectsConfiguration("ivy.lsp.restartWindow") ||
                 e.affectsConfiguration("ivy.lsp.includePaths") ||
                 e.affectsConfiguration("ivy.lsp.excludePaths") ||
+                e.affectsConfiguration("ivy.lsp.parseWorkers") ||
                 e.affectsConfiguration("ivy.codeLens.enabled") ||
-                e.affectsConfiguration("ivy.codeLens.rfcCoverage")
+                e.affectsConfiguration("ivy.codeLens.rfcCoverage") ||
+                e.affectsConfiguration("ivy.lsp.bulkAnalysis") ||
+                e.affectsConfiguration("ivy.lsp.bulkAnalysisT2") ||
+                e.affectsConfiguration("ivy.lsp.bulkCompile") ||
+                e.affectsConfiguration("ivy.lsp.compileWorkers") ||
+                e.affectsConfiguration("ivy.lsp.compileTimeout") ||
+                e.affectsConfiguration("ivy.lsp.compileCacheTTL") ||
+                e.affectsConfiguration("ivy.activity.granularity") ||
+                e.affectsConfiguration("ivy.tools.verifyTimeout") ||
+                e.affectsConfiguration("ivy.tools.compileTimeout") ||
+                e.affectsConfiguration("ivy.tools.showModelTimeout")
             ) {
-                clearCache();
-                await stopClient();
-
-                const nowEnabled = vscode.workspace
-                    .getConfiguration("ivy")
-                    .get<boolean>("lsp.enabled", true);
-
-                if (nowEnabled) {
-                    await startClient(context);
-                } else {
-                    setStatus("syntax-only");
+                if (configChangeTimer) {
+                    clearTimeout(configChangeTimer);
                 }
+                configChangeTimer = setTimeout(async () => {
+                    configChangeTimer = undefined;
+                    clearCache();
+                    await stopClient();
+
+                    const nowEnabled = vscode.workspace
+                        .getConfiguration("ivy")
+                        .get<boolean>("lsp.enabled", true);
+
+                    if (nowEnabled) {
+                        await startClient(context);
+                    } else {
+                        setStatus("syntax-only");
+                    }
+                }, 500);
             }
         })
     );
 
-    // Auto-detect test scope on editor focus change.
+    // Auto-detect test scope on editor focus change (debounced to avoid
+    // flooding the server with notifications and requests when switching tabs).
     context.subscriptions.push(
-        vscode.window.onDidChangeActiveTextEditor(async (editor) => {
-            if (!client) {
-                return;
+        vscode.window.onDidChangeActiveTextEditor((editor) => {
+            if (editorChangeTimer) {
+                clearTimeout(editorChangeTimer);
             }
-            const autoDetect = vscode.workspace
-                .getConfiguration("ivy")
-                .get<boolean>("testScope.autoDetect", true);
-            await onActiveEditorChanged(client, editor, autoDetect);
-            await refreshStatusBar(client, testScopeStatusBar);
+            editorChangeTimer = setTimeout(async () => {
+                editorChangeTimer = undefined;
+                if (!client) {
+                    return;
+                }
+                const autoDetect = vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<boolean>("testScope.autoDetect", true);
+                await onActiveEditorChanged(client, editor, autoDetect);
+                await refreshStatusBar(client, testScopeStatusBar);
+                // Sync active test scope to model data provider.
+                try {
+                    if (modelDataProvider && client) {
+                        await syncTestScope(client, modelDataProvider);
+                    }
+                } catch (err) {
+                    console.debug("[ivy-ext] Best-effort test scope sync failed:", err);
+                }
+            }, 500);
         })
     );
 }
 
 export async function deactivate(): Promise<void> {
+    // Clear debounce timers.
+    if (editorChangeTimer) {
+        clearTimeout(editorChangeTimer);
+        editorChangeTimer = undefined;
+    }
+    if (configChangeTimer) {
+        clearTimeout(configChangeTimer);
+        configChangeTimer = undefined;
+    }
+    // All disposable objects are already in context.subscriptions,
+    // which VS Code disposes automatically. Just stop the LSP client.
+    modelVisibleConsumers.clear();
+    disposeTestScope();
     await stopClient();
 }
 
@@ -234,13 +672,21 @@ class ConfigurableErrorHandler implements ErrorHandler {
     }
 
     error(
-        _error: Error,
-        _message: Message | undefined,
+        error: Error,
+        message: Message | undefined,
         count: number | undefined
     ): ErrorHandlerResult {
+        console.warn(
+            `[ivy-lsp] LSP error #${count ?? "?"}:`,
+            error.message,
+            message ? `(method: ${(message as any).method ?? "unknown"})` : "",
+        );
         if (count && count <= 3) {
             return { action: ErrorAction.Continue };
         }
+        console.error(
+            `[ivy-lsp] Too many errors (${count ?? "?"}), shutting down LSP client.`,
+        );
         return { action: ErrorAction.Shutdown };
     }
 
@@ -250,6 +696,10 @@ class ConfigurableErrorHandler implements ErrorHandler {
         }
 
         this.restarts.push(Date.now());
+        // Trim to only the entries needed for the sliding window check.
+        while (this.restarts.length > this.maxRestartCount + 1) {
+            this.restarts.shift();
+        }
         if (this.restarts.length <= this.maxRestartCount) {
             return { action: CloseAction.Restart };
         }
@@ -288,11 +738,30 @@ async function startClient(
     }
 
     let ivyLspVersion = await checkIvyLsp(pythonPath);
+    let effectivePython = pythonPath;
+
+    // If the discovered Python lacks ivy-lsp, check the managed venv
+    // before triggering any install. Prevents clobbering editable dev installs
+    // when findPython() returns a workspace venv without ivy-lsp.
+    if (!ivyLspVersion) {
+        const existingManagedPy = getManagedVenvPython();
+        if (existingManagedPy) {
+            const managedVer = await checkIvyLsp(existingManagedPy);
+            if (managedVer) {
+                ivyLspVersion = managedVer;
+                effectivePython = existingManagedPy;
+            }
+        }
+    }
 
     // If the managed venv has an outdated version, upgrade automatically.
     const extensionVersion = context.extension.packageJSON.version as string;
     const managedPy = getManagedVenvPython();
-    if (ivyLspVersion && isOlderVersion(ivyLspVersion, extensionVersion) && managedPy) {
+    const managedInstallEnabled = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.managedInstall", true);
+
+    if (ivyLspVersion && isOlderVersion(ivyLspVersion, extensionVersion) && managedPy && managedInstallEnabled) {
         setStatus("installing");
         const ok = await upgradeManagedIvyLsp();
         if (ok) {
@@ -315,10 +784,6 @@ async function startClient(
 
     // If ivy-lsp is not installed, try managed auto-install.
     if (!ivyLspVersion) {
-        const managedInstallEnabled = vscode.workspace
-            .getConfiguration("ivy")
-            .get<boolean>("lsp.managedInstall", true);
-
         if (managedInstallEnabled) {
             // Find a system python to create the venv from.
             // The pythonPath we found may be a workspace venv without ivy-lsp;
@@ -368,7 +833,7 @@ async function startClient(
         return;
     }
 
-    await startWithPython(context, pythonPath, ivyLspVersion);
+    await startWithPython(context, effectivePython, ivyLspVersion);
 }
 
 async function startWithPython(
@@ -392,6 +857,50 @@ async function startWithPython(
         .getConfiguration("ivy")
         .get<string[]>("lsp.excludePaths", ["submodules", "test"]);
 
+    const parseWorkers = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.parseWorkers", 0);
+
+    const bulkAnalysis = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkAnalysis", true);
+
+    const bulkAnalysisT2 = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkAnalysisT2", true);
+
+    const bulkCompile = vscode.workspace
+        .getConfiguration("ivy")
+        .get<boolean>("lsp.bulkCompile", true);
+
+    const compileWorkers = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileWorkers", 1);
+
+    const compileTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileTimeout", 300);
+
+    const compileCacheTTL = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("lsp.compileCacheTTL", 600);
+
+    const activityGranularity = vscode.workspace
+        .getConfiguration("ivy")
+        .get<string>("activity.granularity", "phase");
+
+    const verifyTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.verifyTimeout", 120);
+
+    const toolCompileTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.compileTimeout", 300);
+
+    const showModelTimeout = vscode.workspace
+        .getConfiguration("ivy")
+        .get<number>("tools.showModelTimeout", 30);
+
     const serverOptions: ServerOptions = {
         command: pythonPath,
         args: ["-m", "ivy_lsp", ...extraArgs],
@@ -402,6 +911,17 @@ async function startWithPython(
                 IVY_LSP_LOG_LEVEL: logLevel,
                 IVY_LSP_INCLUDE_PATHS: includePaths.join(","),
                 IVY_LSP_EXCLUDE_PATHS: excludePaths.join(","),
+                IVY_LSP_PARSE_WORKERS: String(parseWorkers),
+                IVY_LSP_BULK_ANALYSIS: bulkAnalysis ? "1" : "0",
+                IVY_LSP_BULK_ANALYSIS_T2: bulkAnalysisT2 ? "1" : "0",
+                IVY_LSP_BULK_COMPILE: bulkCompile ? "1" : "0",
+                IVY_LSP_COMPILE_WORKERS: String(compileWorkers),
+                IVY_LSP_COMPILE_TIMEOUT: String(compileTimeout),
+                IVY_LSP_COMPILE_CACHE_TTL: String(compileCacheTTL),
+                IVY_LSP_ACTIVITY_LEVEL: activityGranularity,
+                IVY_LSP_VERIFY_TIMEOUT: String(verifyTimeout),
+                IVY_LSP_TOOL_COMPILE_TIMEOUT: String(toolCompileTimeout),
+                IVY_LSP_SHOW_MODEL_TIMEOUT: String(showModelTimeout),
             },
         },
     };
@@ -423,7 +943,7 @@ async function startWithPython(
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "ivy" }],
         outputChannelName: "Ivy Language Server",
-        traceOutputChannel: vscode.window.createOutputChannel(
+        traceOutputChannel: traceOutputChannel ??= vscode.window.createOutputChannel(
             "Ivy LSP Trace"
         ),
         errorHandler: new ConfigurableErrorHandler(
@@ -445,21 +965,29 @@ async function startWithPython(
         clientOptions
     );
 
-    // Set trace level if not "off".
-    if (traceLevel !== "off") {
-        const trace =
-            traceLevel === "verbose" ? Trace.Verbose : Trace.Messages;
-        await client.setTrace(trace);
-    }
-
     // Listen for the server mode notification to set status accurately.
     let modeDetected = false;
-    client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
+    logNotificationDisposable?.dispose();
+    logNotificationDisposable = client.onNotification("window/logMessage", (params: { type: number; message: string }) => {
+        // Route to structured activity channel
+        activityChannel?.handleLogMessage(params.type, params.message);
+
+        // Reproduce the built-in handler behavior that this registration
+        // replaced: write to the "Ivy Language Server" output channel.
+        if (client) {
+            const now = new Date().toLocaleTimeString();
+            const label = params.type === 1 ? "Error"
+                : params.type === 2 ? "Warn"
+                : params.type === 3 ? "Info" : "Log";
+            client.outputChannel.appendLine(
+                `[${label.padEnd(5)} - ${now}] ${params.message}`
+            );
+        }
+
         if (!modeDetected && params.message.includes("Ivy LSP running in")) {
             modeDetected = true;
             if (params.message.includes("light mode")) {
                 setStatus("running-light", version);
-                // One-time suggestion to install full support.
                 const managed = getManagedVenvPython();
                 if (managed) {
                     offerFullInstall();
@@ -470,12 +998,49 @@ async function startWithPython(
         }
     });
 
+    // Register ivy/serverReady notification BEFORE client.start() so it's
+    // in place by the time the server finishes initialization.
+    client.onNotification("ivy/serverReady", (params: { mode?: string; indexingDuration?: number }) => {
+        stateTracker?.onServerReady();
+        if (params?.indexingDuration !== undefined) {
+            console.log(`[ivy] Server ready (${params.mode ?? "unknown"} mode) in ${params.indexingDuration.toFixed(1)}s`);
+        }
+    });
+
+    // Push-based T3 compilation progress — supplements the 3 s polling cycle
+    // so the dashboard / tree view updates in real time during bulk compilation.
+    client.onNotification("ivy/compilationProgress", (params: CompilationProgressNotification) => {
+        stateTracker?.handleCompilationProgress(params);
+    });
+
     try {
+        console.debug("[ivy-ext] calling client.start()...");
         await client.start();
+        console.debug("[ivy-ext] client.start() resolved, state =", client.state);
+
+        // Set trace level AFTER start() so it overrides the library's
+        // refreshTrace() which reads from the wrong config key.
+        if (traceLevel !== "off") {
+            const trace =
+                traceLevel === "verbose" ? Trace.Verbose : Trace.Messages;
+            await client.setTrace(trace);
+        }
+
         // Default to running-full until we hear from the server.
         if (!modeDetected) {
             setStatus("running-full", version);
         }
+
+        // Register model/monitor clients IMMEDIATELY so the
+        // ivy/modelReady notification handler is in place.  Actual data
+        // fetching is deferred: LspStateTracker polls only when its tree
+        // view is visible, and ModelDataProvider waits for modelReady or
+        // explicit user interaction before its first request.
+        console.debug("[ivy-ext] about to call setClient, modelDataProvider =", modelDataProvider ? "exists" : "undefined");
+        stateTracker?.setClient(client);
+        modelDataProvider?.setClient(client);
+        console.debug("[ivy-ext] setClient done (polling deferred)");
+
         // Refresh test scope status bar after successful start.
         const tsScopeEnabled = vscode.workspace
             .getConfiguration("ivy")
@@ -485,6 +1050,7 @@ async function startWithPython(
             await refreshStatusBar(client, testScopeStatusBar);
         }
     } catch (err) {
+        console.error("[ivy-ext] startWithPython try block failed:", err);
         const message =
             err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(
@@ -495,14 +1061,26 @@ async function startWithPython(
 }
 
 async function stopClient(): Promise<void> {
+    // 1. Stop all polling FIRST to prevent new requests during shutdown.
+    stateTracker?.setVisible(false);
+    modelDataProvider?.setVisible(false);
+
+    logNotificationDisposable?.dispose();
+    logNotificationDisposable = undefined;
     if (client) {
         try {
-            await client.stop();
-        } catch {
-            // Client may already be stopped.
+            const stopMs =
+                vscode.workspace
+                    .getConfiguration("ivy")
+                    .get<number>("lsp.stopTimeout", 30) * 1000;
+            await client.stop(stopMs);
+        } catch (err) {
+            console.warn("[ivy-ext] stopClient error (server may have already exited):", err);
         }
         client = undefined;
     }
+    stateTracker?.setClient(null);
+    modelDataProvider?.setClient(null);
     if (testScopeStatusBar) {
         updateStatusBar(testScopeStatusBar, null);
     }

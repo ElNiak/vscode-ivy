@@ -43,6 +43,29 @@ export function getManagedVenvPython(): string | undefined {
 }
 
 /**
+ * Detect whether ivy-lsp is installed as a PEP 660 editable install.
+ * Uses `direct_url.json` from the distribution metadata.
+ */
+export async function isEditableInstall(pythonPath: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        cp.execFile(
+            pythonPath,
+            [
+                "-c",
+                'import json, importlib.metadata; ' +
+                'd = importlib.metadata.distribution("ivy-lsp"); ' +
+                'u = d.read_text("direct_url.json"); ' +
+                'print(json.loads(u).get("dir_info",{}).get("editable",False) if u else False)',
+            ],
+            { timeout: 5_000 },
+            (error, stdout) => {
+                resolve(!error && stdout.trim() === "True");
+            }
+        );
+    });
+}
+
+/**
  * Ensure ivy-lsp is installed in the managed venv, creating it if needed.
  *
  * @param pythonPath A working system Python to create the venv from.
@@ -64,12 +87,13 @@ export async function ensureIvyLspInstalled(
             if (!fs.existsSync(py)) {
                 progress.report({ message: "Creating Python environment..." });
                 const venvDir = path.join(getBaseDir(), "venv");
-                const ok = await runProcess(
+                const result = await runProcess(
                     pythonPath,
                     ["-m", "venv", venvDir],
                     token
                 );
-                if (!ok) {
+                if (!result.success) {
+                    console.warn(`[ivy-lsp] Process failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`);
                     vscode.window.showErrorMessage(
                         "Ivy LSP: Failed to create virtual environment."
                     );
@@ -81,15 +105,23 @@ export async function ensureIvyLspInstalled(
                 return undefined;
             }
 
+            // Skip managed install if an editable (dev) install already exists.
+            if (await isEditableInstall(py)) {
+                console.log("[ivy-lsp] Editable install detected — skipping managed install.");
+                return py;
+            }
+
             // Step 2: Install ivy-lsp (light, no z3).
             progress.report({ message: "Installing ivy-lsp..." });
             const pip = venvPip();
-            const ok = await runProcess(
+            // DEV-ONLY: installs from GitHub HEAD. Pin to a tag (@vX.Y.Z) before release.
+            const installResult = await runProcess(
                 pip,
-                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp"],
+                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
                 token
             );
-            if (!ok) {
+            if (!installResult.success) {
+                console.warn(`[ivy-lsp] Process failed (exit ${installResult.exitCode}): ${installResult.stderr.slice(0, 500)}`);
                 vscode.window.showErrorMessage(
                     "Ivy LSP: Failed to install ivy-lsp. Check your network connection."
                 );
@@ -127,18 +159,19 @@ export async function installZ3Support(
             cancellable: true,
         },
         async (_progress, token) => {
-            const ok = await runProcess(
+            const result = await runProcess(
                 pip,
                 ["install", "--upgrade", "panther_ms_ivy[z3]"],
                 token
             );
-            if (!ok) {
+            if (!result.success) {
+                console.warn(`[ivy-lsp] Process failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`);
                 vscode.window.showErrorMessage(
                     "Ivy LSP: Failed to install z3 support. " +
                         "This is a large download (~200MB) and may take several minutes."
                 );
             }
-            return ok;
+            return result.success;
         }
     );
 }
@@ -154,6 +187,11 @@ export async function upgradeManagedIvyLsp(): Promise<boolean> {
         return false;
     }
 
+    if (await isEditableInstall(py)) {
+        console.log("[ivy-lsp] Editable install detected — skipping upgrade.");
+        return true;
+    }
+
     const pip = venvPip();
     return vscode.window.withProgress(
         {
@@ -162,17 +200,19 @@ export async function upgradeManagedIvyLsp(): Promise<boolean> {
             cancellable: true,
         },
         async (_progress, token) => {
-            const ok = await runProcess(
+            // DEV-ONLY: installs from GitHub HEAD. Pin to a tag (@vX.Y.Z) before release.
+            const result = await runProcess(
                 pip,
-                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp"],
+                ["install", "--upgrade", "--no-cache-dir", "ivy-lsp @ git+https://github.com/ElNiak/ivy-lsp.git"],
                 token
             );
-            if (!ok) {
+            if (!result.success) {
+                console.warn(`[ivy-lsp] Process failed (exit ${result.exitCode}): ${result.stderr.slice(0, 500)}`);
                 vscode.window.showErrorMessage(
                     "Ivy LSP: Failed to upgrade. Check your network connection."
                 );
             }
-            return ok;
+            return result.success;
         }
     );
 }
@@ -191,30 +231,41 @@ export async function resetManagedVenv(): Promise<void> {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+interface ProcessResult {
+    success: boolean;
+    exitCode: number | null;
+    stderr: string;
+}
+
 function runProcess(
     command: string,
     args: string[],
-    token: vscode.CancellationToken
-): Promise<boolean> {
+    token: vscode.CancellationToken,
+): Promise<ProcessResult> {
     return new Promise((resolve) => {
         const proc = cp.spawn(command, args, {
             stdio: "pipe",
             env: { ...process.env },
         });
 
+        let stderr = "";
+        proc.stderr?.on("data", (chunk: Buffer) => {
+            stderr += chunk.toString();
+        });
+
         const dispose = token.onCancellationRequested(() => {
             proc.kill();
-            resolve(false);
+            resolve({ success: false, exitCode: null, stderr: "Cancelled by user" });
         });
 
         proc.on("close", (code) => {
             dispose.dispose();
-            resolve(code === 0);
+            resolve({ success: code === 0, exitCode: code, stderr });
         });
 
-        proc.on("error", () => {
+        proc.on("error", (err) => {
             dispose.dispose();
-            resolve(false);
+            resolve({ success: false, exitCode: null, stderr: err.message });
         });
     });
 }

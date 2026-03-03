@@ -54,11 +54,6 @@ suite("Ivy Test Scope Features", () => {
             true,
             "testScope.autoDetect should default to true"
         );
-        assert.strictEqual(
-            config.get<boolean>("testScope.showNctLabels"),
-            true,
-            "testScope.showNctLabels should default to true"
-        );
     });
 
     test("Keybinding for setActiveTest is registered", async () => {

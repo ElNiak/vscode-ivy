@@ -1,8 +1,8 @@
 {
   "name": "ivy-language",
   "displayName": "Ivy Language",
-  "description": "Language support for Ivy formal specification files (.ivy) \u2014 syntax highlighting, LSP client, snippets",
-  "version": "0.7.0",
+  "description": "Language support for Ivy formal specification files (.ivy) — syntax highlighting, LSP client, snippets",
+  "version": "0.11.0",
   "publisher": "panther-ivy",
   "license": "MIT",
   "repository": {
@@ -42,6 +42,29 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ivy-monitor",
+          "title": "Ivy LSP",
+          "icon": "icons/ivy-dark.png"
+        }
+      ]
+    },
+    "views": {
+      "ivy-monitor": [
+        {
+          "id": "ivyMonitor",
+          "name": "Monitor",
+          "type": "tree"
+        },
+        {
+          "id": "ivyRequirements",
+          "name": "Requirements",
+          "type": "tree"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "ivy.installServer",
@@ -83,6 +106,91 @@
         "command": "ivy.listTests",
         "title": "Ivy: List Available Tests",
         "icon": "$(list-unordered)"
+      },
+      {
+        "command": "ivy.openDashboard",
+        "title": "Ivy: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "ivy.reindexWorkspace",
+        "title": "Ivy: Re-index Workspace",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.clearCache",
+        "title": "Ivy: Clear Cache",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "ivy.checkForUpdates",
+        "title": "Ivy: Check for LSP Updates",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "ivy.refreshMonitor",
+        "title": "Ivy: Refresh Monitor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.editIncludePaths",
+        "title": "Ivy: Edit Include Paths",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "ivy.editExcludePaths",
+        "title": "Ivy: Edit Exclude Paths",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "ivy.showOutput",
+        "title": "Ivy: Show Server Output",
+        "icon": "$(output)"
+      },
+      {
+        "command": "ivy.toggleDebugLog",
+        "title": "Ivy: Toggle Debug Logging",
+        "icon": "$(bug)"
+      },
+      {
+        "command": "ivy.recompileAll",
+        "title": "Ivy: Recompile All Tests",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "ivy.openModelVisualization",
+        "title": "Ivy: Open Model Visualization",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "ivy.showActionRequirements",
+        "title": "Ivy: Show Action Requirements",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "ivy.navigateToInclude",
+        "title": "Ivy: Navigate to Included File",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "ivy.showPropertyDetails",
+        "title": "Ivy: Show Property Details",
+        "icon": "$(symbol-property)"
+      },
+      {
+        "command": "ivy.showRfcDetails",
+        "title": "Ivy: Show RFC Details",
+        "icon": "$(bookmark)"
+      },
+      {
+        "command": "ivy.refreshRequirements",
+        "title": "Ivy: Refresh Requirements",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "ivy.showActivityLog",
+        "title": "Ivy: Show Activity Log",
+        "icon": "$(output)"
       }
     ],
     "submenus": [
@@ -104,6 +212,52 @@
           "submenu": "ivy.submenu",
           "when": "resourceExtname == .ivy",
           "group": "ivy"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "ivy.refreshMonitor",
+          "when": "view == ivyMonitor",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.openDashboard",
+          "when": "view == ivyMonitor",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.refreshRequirements",
+          "when": "view == ivyRequirements",
+          "group": "navigation"
+        },
+        {
+          "command": "ivy.openModelVisualization",
+          "when": "view == ivyRequirements",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "ivy.reindexWorkspace",
+          "when": "viewItem == indexing || viewItem == indexingItem",
+          "group": "inline"
+        },
+        {
+          "command": "ivy.clearCache",
+          "when": "viewItem == indexing || viewItem == indexingItem"
+        },
+        {
+          "command": "ivy.cancelOperation",
+          "when": "viewItem == activeOperation",
+          "group": "inline"
+        },
+        {
+          "command": "ivy.editIncludePaths",
+          "when": "viewItem == configItem"
+        },
+        {
+          "command": "ivy.editExcludePaths",
+          "when": "viewItem == configItem"
         }
       ],
       "ivy.submenu": [
@@ -264,6 +418,67 @@
           ],
           "description": "Directories to exclude from workspace indexing (relative to workspace root). The LSP stages non-excluded files into a flat directory for unambiguous include resolution. Add 'apt' to skip APT models. Exclusions apply within included paths."
         },
+        "ivy.lsp.parseWorkers": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 16,
+          "description": "Number of parallel worker processes for deep indexing. 0 = auto (half CPU cores), 1 = serial (enables full T2/T3 semantic analysis). Parallel mode uses light-mode extraction only."
+        },
+        "ivy.lsp.bulkAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run background Tier 1 + Tier 2 semantic analysis after indexing completes. Disabling speeds up startup but removes RFC coverage and semantic enrichment."
+        },
+        "ivy.lsp.bulkAnalysisT2": {
+          "type": "boolean",
+          "default": true,
+          "description": "Include Tier 2 (AST enrichment) in bulk analysis. Only applies when bulk analysis is enabled. Disable to limit analysis to Tier 1 only."
+        },
+        "ivy.lsp.bulkCompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run background Tier 3 compilation for all test entry points after analysis. Provides full action export/import data for RFC coverage but is memory-intensive."
+        },
+        "ivy.lsp.compileWorkers": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 8,
+          "description": "Maximum number of concurrent Ivy compilation processes. 0 = auto (CPU cores / 4, min 1). Each process loads Z3 + Ivy (~300-500 MB). Increase on machines with ample RAM."
+        },
+        "ivy.lsp.compileTimeout": {
+          "type": "number",
+          "default": 300,
+          "minimum": 30,
+          "description": "Timeout in seconds for each background compilation. Applies to bulk T3 compilation (not user-initiated compile commands, which use ivy.tools.compileTimeout)."
+        },
+        "ivy.lsp.compileCacheTTL": {
+          "type": "number",
+          "default": 600,
+          "minimum": 0,
+          "description": "Time-to-live in seconds for cached compilation results. Set to 0 to disable caching."
+        },
+        "ivy.lsp.panelRequestTimeout": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Timeout in seconds for model panel requests (action requirements, summary, coverage gaps, dependency graph, state machine). Increase for large workspaces where background analysis causes lock contention."
+        },
+        "ivy.lsp.stopTimeout": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 60,
+          "description": "Timeout in seconds for stopping the language server. Increase if you see 'Array buffer allocation failed' or 'Shutting down server' errors on large workspaces."
+        },
+        "ivy.requirements.coverageThreshold": {
+          "type": "integer",
+          "default": 2,
+          "minimum": 1,
+          "description": "Minimum number of requirements per action for the green (high) coverage gutter indicator. Actions below this threshold show yellow."
+        },
         "ivy.codeLens.enabled": {
           "type": "boolean",
           "default": true,
@@ -277,12 +492,20 @@
         "ivy.tools.verifyTimeout": {
           "type": "number",
           "default": 120,
-          "description": "Timeout in seconds for verification."
+          "minimum": 10,
+          "description": "Timeout in seconds for verification (ivy_check). Applies to both the LSP request and the server-side subprocess."
         },
         "ivy.tools.compileTimeout": {
           "type": "number",
           "default": 300,
-          "description": "Timeout in seconds for compilation."
+          "minimum": 30,
+          "description": "Timeout in seconds for user-initiated compilation (ivyc). Background bulk compilation uses ivy.lsp.compileTimeout instead."
+        },
+        "ivy.tools.showModelTimeout": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "description": "Timeout in seconds for the Show Model command (ivy_show)."
         },
         "ivy.tools.autoSaveBeforeAction": {
           "type": "boolean",
@@ -299,10 +522,25 @@
           "default": true,
           "description": "Automatically set the active test when opening a test file. The scope stays sticky when switching to non-test files."
         },
-        "ivy.testScope.showNctLabels": {
+        "ivy.activity.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Show NCT classification tags ([ASSUMPTION]/[GUARANTEE]) in code lens labels when a test scope is active."
+          "description": "Enable the Ivy Activity structured log channel for monitoring server events."
+        },
+        "ivy.activity.categories": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["MIL", "DIA", "PER", "ACT"]
+          },
+          "default": ["MIL", "DIA", "PER"],
+          "description": "Which log categories to show (MIL=milestones, DIA=diagnostics, PER=performance, ACT=activity)."
+        },
+        "ivy.activity.granularity": {
+          "type": "string",
+          "enum": ["phase", "file"],
+          "default": "phase",
+          "description": "Log granularity: 'phase' shows major events only, 'file' adds per-file details (increases server output)."
         }
       }
     }
@@ -310,8 +548,9 @@
   "scripts": {
     "vscode:prepublish": "npm run bundle",
     "compile": "tsc -p ./",
-    "bundle": "node esbuild.js --production",
-    "bundle:dev": "node esbuild.js",
+    "bundle": "node esbuild.js --production && node esbuild.webview.js --production",
+    "bundle:dev": "node esbuild.js && node esbuild.webview.js",
+    "bundle:webview": "node esbuild.webview.js",
     "watch": "tsc -watch -p ./",
     "lint": "eslint src --ext ts",
     "pretest": "npm run compile",
@@ -319,9 +558,11 @@
     "test:unit": "npx mocha out/test/unit/**/*.test.js"
   },
   "dependencies": {
+    "cytoscape": "^3.33.1",
     "vscode-languageclient": "^9.0.1"
   },
   "devDependencies": {
+    "@types/cytoscape": "^3.21.9",
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.75.0",
@@ -329,9 +570,9 @@
     "@typescript-eslint/parser": "^7.0.0",
     "@vscode/test-electron": "^2.3.8",
     "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.24.0",
     "eslint": "^8.56.0",
     "mocha": "^10.3.0",
-    "esbuild": "^0.24.0",
     "typescript": "^5.3.3",
     "vscode-tmgrammar-test": "^0.1.3"
   }
