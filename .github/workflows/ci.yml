@@ -8,7 +8,33 @@ on:
     branches: [main]
 
 jobs:
+  quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
   build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }})
+    needs: quality
     runs-on: ubuntu-latest
     strategy:
       matrix:

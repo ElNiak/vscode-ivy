@@ -1,0 +1,38 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(out/|dist/|\.vscode-test/)
+      - id: end-of-file-fixer
+        exclude: ^(out/|dist/|\.vscode-test/)
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+      - id: check-json
+        exclude: ^syntaxes/
+      - id: check-yaml
+
+  - repo: local
+    hooks:
+      - id: prettier
+        name: Prettier
+        entry: npx prettier --check
+        language: system
+        files: ^src/.*\.ts$
+        types: [ts]
+
+      - id: eslint
+        name: ESLint
+        entry: npx eslint
+        language: system
+        files: ^src/.*\.ts$
+        types: [ts]
+
+      - id: tsc-check
+        name: TypeScript Type Check
+        entry: npx tsc --noEmit
+        language: system
+        files: ^src/.*\.ts$
+        pass_filenames: false
+        stages: [manual]

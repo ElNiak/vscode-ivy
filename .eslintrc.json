@@ -10,7 +10,8 @@
   ],
   "extends": [
     "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
+    "plugin:@typescript-eslint/recommended",
+    "prettier"
   ],
   "rules": {
     "@typescript-eslint/naming-convention": [
@@ -23,14 +24,33 @@
         ]
       }
     ],
-    "semi": "warn",
+    "semi": "off",
+    "@typescript-eslint/semi": "warn",
     "curly": "warn",
     "eqeqeq": "warn",
-    "no-throw-literal": "warn"
+    "no-throw-literal": "warn",
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "no-console": [
+      "warn",
+      {
+        "allow": [
+          "warn",
+          "error"
+        ]
+      }
+    ]
   },
   "ignorePatterns": [
     "out",
     "dist",
-    "**/*.d.ts"
+    "**/*.d.ts",
+    "esbuild.js",
+    "esbuild.webview.js"
   ]
 }
